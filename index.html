@@ -891,6 +891,14 @@ function play(){
     return;
   }
 
+  // 拖到还没缓冲的地方，先静音预播把这一小段灌满，不然一按播放就卡住
+  if(!recording && a.paused && bufferedAhead(a, pos) < 1){
+    const p = pos;
+    showTip('正在缓冲这一句…');
+    primeAt(a, p, 3, 60000).then(ok => { if(ok && !playing) play(); });
+    return;
+  }
+
   a.currentTime = pos;
   const ret = a.play();
   if(ret && ret.catch) ret.catch(e => {
@@ -1155,6 +1163,36 @@ function waitCanPlay(el, ms){
   });
 }
 
+/* 起唱点之后已经缓冲了多少秒 */
+function bufferedAhead(el, t){
+  try{
+    for(let i = 0; i < el.buffered.length; i++){
+      const a = el.buffered.start(i), z = el.buffered.end(i);
+      if(a <= t + 0.15 && z > t) return z - t;
+    }
+  }catch(e){}
+  return 0;
+}
+
+/* 暂停时浏览器只肯缓冲一两秒，先静音播一下把这一段灌满 */
+async function primeAt(el, t, need, ms){
+  if(bufferedAhead(el, t) >= need) return true;
+  const vol = el.volume;
+  el.muted = true; el.volume = 0;
+  el.currentTime = t;
+  try{ await el.play(); }catch(e){}
+  const t0 = performance.now();
+  while(performance.now() - t0 < ms){
+    if(el.error) break;
+    if(bufferedAhead(el, t) >= need) break;
+    await sleep(250);
+  }
+  el.pause();
+  el.muted = false; el.volume = vol;
+  try{ el.currentTime = t; }catch(e){}
+  return bufferedAhead(el, t) >= need;
+}
+
 /* 把伴奏接到 WebAudio：一路给扬声器，一路给录音。
    原唱也接进来（只给扬声器），这样录制时能听到原唱、又不会被录进伴奏轨。 */
 async function ensureBeatTap(){
@@ -1215,11 +1253,19 @@ async function beginRecording(){
   if(!ok){ dropMic(); showTip('伴奏加载失败或太慢，检查网络后再按红点', true); return; }
 
   recStart = pos;
-  // 先跳到起唱点、等那一小段缓冲好，否则录音开头会是一截静音
+  // 先跳到起唱点、攒够几秒伴奏，否则录音开头会是一截静音
   setPos(recStart);
-  const okSeek = await waitCanPlay(instEl, 60000);
-  if(token !== recToken) return dropMic();
-  if(!okSeek){ dropMic(); showTip('这句的伴奏还没缓冲好，稍等再按红点', true); return; }
+  if(beatTapEl !== instEl){
+    const p2 = setInterval(() => {
+      if(token !== recToken) return clearInterval(p2);
+      const pct = Math.min(99, Math.round(bufferedAhead(instEl, recStart) / 6 * 100));
+      showTip(`正在准备伴奏… ${pct}%`);
+    }, 700);
+    const okSeek = await primeAt(instEl, recStart, 6, 150000);
+    clearInterval(p2);
+    if(token !== recToken) return dropMic();
+    if(!okSeek){ dropMic(); showTip('这句的伴奏还没缓冲好，等一会儿再按红点', true); return; }
+  }
 
   const ov = $('overlay'); ov.classList.add('on');
   $('ovHint').textContent = '准备好，跟着歌词唱';
