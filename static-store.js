@@ -9,6 +9,8 @@
     lrc: 'rap_s_lrc',
   };
   const SR = 48000;
+  const DBG = /[?&]debug=1/.test(location.search);
+  const log = (...a) => { if (DBG) console.log('[store]', ...a); };
   const json = (obj, status = 200) =>
     new Response(JSON.stringify(obj), {
       status,
@@ -36,13 +38,24 @@
   /* ---------- IndexedDB：录音/成品 ---------- */
   let dbp = null;
   function db() {
-    if (!dbp) dbp = new Promise((res, rej) => {
-      const r = indexedDB.open('rap_media', 1);
-      r.onupgradeneeded = () => r.result.createObjectStore('blobs');
+    if (!dbp) dbp = openDB(1).then(d => {
+      if (d.objectStoreNames.contains('blobs')) return d;
+      // 早前有别的页面探测过这个库，建成了空库：升一级补上
+      d.close();
+      return openDB(2);
+    });
+    return dbp;
+  }
+  function openDB(ver) {
+    return new Promise((res, rej) => {
+      const r = indexedDB.open('rap_media', ver);
+      r.onupgradeneeded = () => {
+        const d = r.result;
+        if (!d.objectStoreNames.contains('blobs')) d.createObjectStore('blobs');
+      };
       r.onsuccess = () => res(r.result);
       r.onerror = () => rej(r.error);
     });
-    return dbp;
   }
   async function putBlob(k, blob) {
     const d = await db();
@@ -93,29 +106,43 @@
   /* ---------- 音频 ---------- */
   const instCache = new Map();
   async function audioBuf(url) {
-    if (instCache.has(url)) return instCache.get(url);
+    if (instCache.has(url)) { log('inst cached', url); return instCache.get(url); }
     const p = (async () => {
+      log('inst fetch', url);
       const r = await nativeFetch(url);
       if (!r.ok) throw new Error('伴奏加载失败');
       const ab = await r.arrayBuffer();
+      log('inst bytes', ab.byteLength);
       const ac = new (window.AudioContext || window.webkitAudioContext)();
-      try { return await ac.decodeAudioData(ab); }
-      finally { ac.close(); }
+      try {
+        const b = await ac.decodeAudioData(ab);
+        log('inst decoded', b.duration, b.sampleRate);
+        return b;
+      } finally { ac.close(); }
     })();
     instCache.set(url, p);
     try { return await p; } catch (e) { instCache.delete(url); throw e; }
   }
   async function decodeRec(blob) {
+    log('rec bytes', blob.size, blob.type);
     const ab = await blob.arrayBuffer();
     const ac = new (window.AudioContext || window.webkitAudioContext)();
-    try { return await ac.decodeAudioData(ab); }
-    finally { ac.close(); }
+    try {
+      const b = await ac.decodeAudioData(ab);
+      log('rec decoded', b.duration, b.sampleRate, b.numberOfChannels);
+      return b;
+    } catch (e) {
+      log('rec decode failed', e && (e.message || e));
+      throw e;
+    } finally { ac.close(); }
   }
 
   /* 和 server.py 的 ffmpeg 链对齐：人声压一下再来个 limiter，然后按倍数混合 */
   async function renderMix(track, recBlob, offsetSec, volInst, volVocal) {
+    log('mix start', track.instrumental, offsetSec);
     const [inst, rec] = await Promise.all([audioBuf(track.instrumental), decodeRec(recBlob)]);
     const total = Math.min(Math.max(offsetSec + rec.duration, 0.1), 3600);
+    log('mix total', total);
     const ctx = new OfflineAudioContext(2, Math.ceil(total * SR), SR);
 
     const gi = ctx.createGain();
@@ -149,7 +176,9 @@
     sum.connect(ctx.destination);
     sv.start(offsetSec);
 
+    log('mix rendering');
     const out = await ctx.startRendering();
+    log('mix rendered', out.duration);
     return { blob: encodeWav(out), duration: out.duration };
   }
 
@@ -398,6 +427,7 @@
     if (p === '/api/recording') {
       const trackId = header(opt, 'X-Track-Id');
       const offsetMs = Math.max(0, Math.min(parseInt(header(opt, 'X-Offset') || '0', 10) || 0, 3600000));
+      log('recording req', trackId, offsetMs, opt.body && opt.body.size);
       const track = await findTrack(trackId);
       if (!track) return json({ error: 'unknown track' }, 400);
       const blob = opt.body;
