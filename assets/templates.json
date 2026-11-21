@@ -1,0 +1,317 @@
+[
+  {
+    "id": "slow-piano",
+    "name": "慢 · 钢琴叙事",
+    "bpm": 85,
+    "keyscale": "Bm",
+    "lang": "en",
+    "caption": "emotional piano rap beat, slow tempo, soft drums, warm strings, clean mix, no vocals",
+    "words": [
+      6,
+      10
+    ],
+    "sections": [
+      {
+        "name": "Verse",
+        "lines": 4,
+        "bars": 10
+      },
+      {
+        "name": "Hook",
+        "lines": 4,
+        "bars": 8
+      },
+      {
+        "name": "Verse",
+        "lines": 4,
+        "bars": 10
+      },
+      {
+        "name": "Hook",
+        "lines": 4,
+        "bars": 8
+      }
+    ],
+    "pick": 1
+  },
+  {
+    "id": "slow-lofi",
+    "name": "慢 · Lo-fi",
+    "bpm": 85,
+    "keyscale": "Am",
+    "lang": "en",
+    "caption": "lo-fi hip hop beat, dusty vinyl, mellow chords, soft kick, no vocals",
+    "words": [
+      6,
+      10
+    ],
+    "sections": [
+      {
+        "name": "Verse",
+        "lines": 4,
+        "bars": 10
+      },
+      {
+        "name": "Hook",
+        "lines": 4,
+        "bars": 8
+      },
+      {
+        "name": "Verse",
+        "lines": 4,
+        "bars": 10
+      },
+      {
+        "name": "Hook",
+        "lines": 4,
+        "bars": 8
+      }
+    ],
+    "pick": 1
+  },
+  {
+    "id": "slow-old",
+    "name": "慢 · 老派鼓",
+    "bpm": 88,
+    "keyscale": "Cm",
+    "lang": "en",
+    "caption": "old school boom bap, slow tempo, vinyl crackle, jazzy sample, no vocals",
+    "words": [
+      6,
+      10
+    ],
+    "sections": [
+      {
+        "name": "Verse",
+        "lines": 4,
+        "bars": 10
+      },
+      {
+        "name": "Hook",
+        "lines": 4,
+        "bars": 8
+      },
+      {
+        "name": "Verse",
+        "lines": 4,
+        "bars": 10
+      },
+      {
+        "name": "Hook",
+        "lines": 4,
+        "bars": 8
+      }
+    ],
+    "pick": 2
+  },
+  {
+    "id": "mid-trap",
+    "name": "中 · Trap",
+    "bpm": 108,
+    "keyscale": "Bm",
+    "lang": "en",
+    "caption": "modern trap, 108 bpm, punchy 808, crisp hi-hats, wide stereo, no vocals",
+    "words": [
+      8,
+      14
+    ],
+    "sections": [
+      {
+        "name": "Verse",
+        "lines": 4,
+        "bars": 10
+      },
+      {
+        "name": "Hook",
+        "lines": 4,
+        "bars": 8
+      },
+      {
+        "name": "Verse",
+        "lines": 4,
+        "bars": 10
+      },
+      {
+        "name": "Hook",
+        "lines": 4,
+        "bars": 8
+      }
+    ],
+    "pick": 1
+  },
+  {
+    "id": "mid-boombap",
+    "name": "中 · Boom Bap",
+    "bpm": 100,
+    "keyscale": "Gm",
+    "lang": "en",
+    "caption": "classic boom bap, 100 bpm, heavy kick, snappy snare, vinyl texture, no vocals",
+    "words": [
+      8,
+      14
+    ],
+    "sections": [
+      {
+        "name": "Verse",
+        "lines": 4,
+        "bars": 10
+      },
+      {
+        "name": "Hook",
+        "lines": 4,
+        "bars": 8
+      },
+      {
+        "name": "Verse",
+        "lines": 4,
+        "bars": 10
+      },
+      {
+        "name": "Hook",
+        "lines": 4,
+        "bars": 8
+      }
+    ],
+    "pick": 2
+  },
+  {
+    "id": "mid-electro",
+    "name": "中 · 电子",
+    "bpm": 112,
+    "keyscale": "Am",
+    "lang": "en",
+    "caption": "electro hip hop, 112 bpm, synth bass, tight drums, clean mix, no vocals",
+    "words": [
+      8,
+      14
+    ],
+    "sections": [
+      {
+        "name": "Verse",
+        "lines": 4,
+        "bars": 10
+      },
+      {
+        "name": "Hook",
+        "lines": 4,
+        "bars": 8
+      },
+      {
+        "name": "Verse",
+        "lines": 4,
+        "bars": 10
+      },
+      {
+        "name": "Hook",
+        "lines": 4,
+        "bars": 8
+      }
+    ],
+    "pick": 2
+  },
+  {
+    "id": "fast-spit",
+    "name": "快 · 快嘴",
+    "bpm": 132,
+    "keyscale": "Dm",
+    "lang": "en",
+    "caption": "fast rap beat, 132 bpm, driving drums, minimal melody, energetic, no vocals",
+    "words": [
+      6,
+      11
+    ],
+    "sections": [
+      {
+        "name": "Verse",
+        "lines": 5,
+        "bars": 10
+      },
+      {
+        "name": "Hook",
+        "lines": 4,
+        "bars": 8
+      },
+      {
+        "name": "Verse",
+        "lines": 5,
+        "bars": 10
+      },
+      {
+        "name": "Hook",
+        "lines": 4,
+        "bars": 8
+      }
+    ],
+    "pick": 2
+  },
+  {
+    "id": "fast-drill",
+    "name": "快 · Drill",
+    "bpm": 140,
+    "keyscale": "Em",
+    "lang": "en",
+    "caption": "uk drill, 140 bpm, sliding 808, dark piano, aggressive, no vocals",
+    "words": [
+      6,
+      11
+    ],
+    "sections": [
+      {
+        "name": "Verse",
+        "lines": 5,
+        "bars": 10
+      },
+      {
+        "name": "Hook",
+        "lines": 4,
+        "bars": 8
+      },
+      {
+        "name": "Verse",
+        "lines": 5,
+        "bars": 10
+      },
+      {
+        "name": "Hook",
+        "lines": 4,
+        "bars": 8
+      }
+    ],
+    "pick": 2
+  },
+  {
+    "id": "fast-hype",
+    "name": "快 · 高能",
+    "bpm": 136,
+    "keyscale": "Fm",
+    "lang": "en",
+    "caption": "high energy hip hop, 136 bpm, festival drums, bright synth, no vocals",
+    "words": [
+      6,
+      11
+    ],
+    "sections": [
+      {
+        "name": "Verse",
+        "lines": 5,
+        "bars": 10
+      },
+      {
+        "name": "Hook",
+        "lines": 4,
+        "bars": 8
+      },
+      {
+        "name": "Verse",
+        "lines": 5,
+        "bars": 10
+      },
+      {
+        "name": "Hook",
+        "lines": 4,
+        "bars": 8
+      }
+    ],
+    "pick": 1
+  }
+]

@@ -1,0 +1,16 @@
+{
+ "tracks": [
+  {
+   "id": "part-one-vol1",
+   "title": "Part One Vol.1",
+   "artist": "水子",
+   "bpm": 108,
+   "vocal": "assets/audio/part-one/vocal.mp3",
+   "instrumental": "assets/audio/part-one/inst.mp3",
+   "cover": "assets/audio/part-one/cover.jpg",
+   "lrc": "assets/audio/part-one/lyrics.lrc",
+   "lrc_url": "assets/audio/part-one/lyrics.lrc",
+   "duration": 335.68
+  }
+ ]
+}

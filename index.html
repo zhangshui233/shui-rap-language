@@ -1,0 +1,1722 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<link rel="icon" href="data:,">
+<title>Rap 跟练</title>
+<style>
+:root{
+  --bg:#0a0a0f; --panel:#14141c; --line:#242433;
+  --txt:#eceded; --dim:#7c7c92; --accent:#8b5cff; --hot:#ff4d6d;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0}
+body{
+  background:var(--bg);color:var(--txt);color-scheme:dark;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  overscroll-behavior:none;
+}
+#app{max-width:520px;margin:0 auto;height:100%;display:flex;flex-direction:column;position:relative}
+.screen{display:none;flex-direction:column;height:100%;min-height:0}
+.screen.on{display:flex}
+
+/* ---------- 曲库 ---------- */
+.topbar{display:flex;align-items:center;gap:10px;padding:18px 18px 10px}
+.topbar h1{font-size:19px;margin:0;font-weight:700;letter-spacing:.5px}
+.topbar .sub{font-size:12px;color:var(--dim);margin-left:auto}
+.list{padding:6px 14px 20px;overflow:auto}
+.card{
+  display:flex;gap:13px;padding:12px;border-radius:16px;background:var(--panel);
+  margin-bottom:11px;align-items:center;cursor:pointer;transition:transform .12s;
+}
+.card:active{transform:scale(.985)}
+.card img{width:64px;height:64px;border-radius:11px;object-fit:cover;flex:none}
+.wplay{font-size:15px;color:#8b5cf6;padding:0 2px;flex:none;width:22px;text-align:center}
+.cover-ph{width:64px;height:64px;border-radius:11px;flex:none;display:grid;place-items:center;
+  font-size:15px;font-weight:600;color:#fff;background:linear-gradient(135deg,#6d28d9,#db2777)}
+.card .meta{min-width:0;flex:1}
+.card .t{font-size:15px;font-weight:600;display:flex;align-items:center;gap:6px}
+.card .t .tt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.card .t .badge{margin-left:0;flex:none}
+.card .a{font-size:12px;color:var(--dim);margin-top:4px}
+.badge{font-size:10px;padding:2px 7px;border-radius:20px;background:#2a2150;color:#b49bff;margin-left:6px;vertical-align:middle}
+.empty{color:var(--dim);font-size:13px;text-align:center;padding:50px 20px;line-height:1.9}
+
+/* ---------- 跟唱 ---------- */
+.p-head{display:flex;align-items:center;gap:12px;padding:14px 16px 8px}
+.iconbtn{
+  width:36px;height:36px;border-radius:50%;background:var(--panel);border:1px solid var(--line);
+  color:var(--txt);font-size:16px;display:grid;place-items:center;cursor:pointer;flex:none;
+}
+.p-title{min-width:0;flex:1}
+.p-title .t{font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.p-title .a{font-size:11px;color:var(--dim);margin-top:2px}
+
+#lyricsWrap{flex:1;position:relative;overflow:hidden;min-height:0;touch-action:none;user-select:none;
+  mask-image:linear-gradient(180deg,transparent,#000 16%,#000 84%,transparent);
+  -webkit-mask-image:linear-gradient(180deg,transparent,#000 16%,#000 84%,transparent);}
+#lyrics{position:absolute;left:0;right:0;top:0;padding:0 26px;transition:transform .45s cubic-bezier(.22,.7,.3,1)}
+.line{
+  padding:13px 0;font-size:17px;line-height:1.42;color:#4d4d5e;
+  transition:color .3s,transform .3s,opacity .3s;transform-origin:left center;
+}
+.line.past{color:#5a5a70}
+.line.cur{color:#ffd43b;font-weight:700;font-size:19px;transform:scale(1.02);
+          text-shadow:0 0 18px rgba(255,212,59,.35)}
+.line.preview{color:#ffd43b;font-weight:700;font-size:19px;transform:scale(1.02);
+              opacity:.75}
+.line.next{color:#8d8da4}
+.line.far{color:#3a3a4a}
+
+/* 倒计时 / 录制提示 */
+#overlay{
+  position:absolute;inset:0;display:none;place-items:center;background:rgba(10,10,15,.82);
+  backdrop-filter:blur(6px);z-index:20;
+}
+#overlay.on{display:grid}
+#ovNum{font-size:96px;font-weight:800;color:#fff;letter-spacing:-4px}
+#ovHint{font-size:14px;color:var(--dim);margin-top:8px;text-align:center;line-height:1.8}
+#ovCancel{margin-top:22px;background:transparent;border:1px solid #3a3a4a;color:#9a9aae;
+          border-radius:10px;padding:9px 18px;font-size:13px}
+
+/* 底部控制 */
+.p-foot{padding:10px 18px calc(16px + env(safe-area-inset-bottom));background:linear-gradient(180deg,transparent,var(--bg) 22%)}
+.progress{height:26px;display:flex;align-items:center;cursor:pointer;touch-action:none;position:relative}
+.progress .track{flex:1;height:4px;background:#2a2a38;border-radius:4px;position:relative;overflow:hidden}
+.progress .fill{position:absolute;inset:0;width:0;background:linear-gradient(90deg,var(--accent),var(--hot));border-radius:4px}
+.progress .knob{
+  position:absolute;top:50%;left:0;width:12px;height:12px;border-radius:50%;background:#fff;
+  transform:translate(-50%,-50%);box-shadow:0 0 8px rgba(139,92,255,.7);pointer-events:none;
+}
+.times{display:flex;justify-content:space-between;font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums;margin:2px 2px 8px}
+.controls{display:flex;align-items:center;justify-content:center;gap:26px;padding:4px 0 8px}
+.playbtn{
+  width:66px;height:66px;border-radius:50%;border:none;color:#fff;font-size:24px;
+  background:linear-gradient(135deg,var(--accent),var(--hot));cursor:pointer;
+  box-shadow:0 8px 26px rgba(139,92,255,.35);display:grid;place-items:center;
+}
+.playbtn:active{transform:scale(.95)}
+.recbtn{
+  width:56px;height:56px;border-radius:50%;background:var(--panel);border:2px solid var(--hot);
+  display:grid;place-items:center;cursor:pointer;flex:none;
+}
+.recbtn .dot{width:22px;height:22px;border-radius:50%;background:var(--hot);transition:all .2s}
+.recbtn.rec .dot{width:16px;height:16px;border-radius:4px;animation:pulse 1.1s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.switch{
+  display:flex;align-items:center;gap:7px;font-size:12px;color:var(--dim);
+  background:var(--panel);border:1px solid var(--line);padding:7px 13px;border-radius:20px;cursor:pointer;
+}
+.switch.on{color:#fff;border-color:var(--accent);background:#221a3d}
+.switch .led{width:7px;height:7px;border-radius:50%;background:#3a3a4a}
+.switch.on .led{background:#5cf2a0;box-shadow:0 0 7px #5cf2a0}
+.tips{font-size:11px;color:#5f5f74;text-align:center;min-height:15px}
+.tips.err{font-size:12.5px;color:#ff8095;font-weight:600;line-height:1.5}
+
+/* ---------- 结果 / 作品 ---------- */
+#result{
+  position:absolute;inset:0;z-index:30;background:rgba(5,5,9,.92);backdrop-filter:blur(10px);
+  display:none;flex-direction:column;justify-content:center;padding:26px;gap:16px;
+}
+#result.on{display:flex}
+#result h2{margin:0;font-size:17px;font-weight:700}
+#result audio{width:100%}
+.mixctl{display:flex;flex-direction:column;gap:12px}
+.mixrow{display:flex;align-items:center;gap:10px}
+.mixlab{width:32px;font-size:12.5px;color:var(--dim);flex:none}
+.mixrow input[type=range]{flex:1;accent-color:#8b5cf6;height:22px}
+.mixval{width:42px;text-align:right;font-size:12px;color:var(--dim);flex:none}
+.row{display:flex;gap:10px}
+.btn{
+  flex:1;padding:13px;border-radius:13px;border:none;font-size:14px;font-weight:600;
+  background:var(--panel);color:var(--txt);cursor:pointer;border:1px solid var(--line);
+}
+.btn.primary{background:linear-gradient(135deg,var(--accent),var(--hot));border:none;color:#fff}
+.btn:active{transform:scale(.98)}
+#resultNote{font-size:12px;color:var(--dim);line-height:1.7}
+
+.work{background:var(--panel);border-radius:15px;padding:13px;margin-bottom:10px}
+.work .h{display:flex;justify-content:space-between;font-size:13px;margin-bottom:9px}
+.work .h .d{color:var(--dim);font-size:11px}
+.work audio{width:100%;height:34px}
+.work .del{font-size:11px;color:#ff6b85;cursor:pointer;padding:4px 8px}
+
+/* ---------- AI 写词 ---------- */
+.line{cursor:pointer}
+.ai-entry{display:flex;gap:12px;align-items:center;padding:14px;border-radius:16px;
+  background:linear-gradient(135deg,#221a3d,#2a1b2e);border:1px solid #3a2d5c;margin-bottom:6px;cursor:pointer}
+.ai-entry:active{transform:scale(.99)}
+.ai-entry .ai-ic{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;font-size:17px;flex:none;
+  background:linear-gradient(135deg,var(--accent),var(--hot))}
+.ai-entry .ai-t{font-size:14px;font-weight:600}
+.ai-entry .ai-s{font-size:11px;color:var(--dim);margin-top:3px}
+.sec-title{font-size:12px;color:var(--dim);margin:16px 4px 9px;letter-spacing:.5px}
+.corpus{background:var(--panel);border-radius:13px;padding:12px 13px;margin-bottom:9px;display:flex;gap:10px;align-items:center}
+.corpus .t{font-size:13px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.corpus .k{font-size:10px;padding:2px 8px;border-radius:20px;background:#2a2150;color:#b49bff;flex:none}
+.corpus .k.pending{background:#2a2a38;color:#7c7c92}
+
+#aiPanel{position:fixed;inset:0;background:rgba(4,4,8,.72);backdrop-filter:blur(6px);z-index:50;
+  display:none;align-items:flex-end;justify-content:center}
+#aiPanel.on{display:flex}
+.sheet{background:var(--panel);width:100%;max-width:520px;max-height:92%;overflow:auto;
+  border-radius:22px 22px 0 0;padding:20px 18px calc(24px + env(safe-area-inset-bottom))}
+.sheet-h{display:flex;justify-content:space-between;font-size:16px;font-weight:700;margin-bottom:6px}
+.sheet-h .x{color:var(--dim);cursor:pointer;font-weight:400;padding:0 4px}
+.sheet label{display:block;font-size:12px;color:var(--dim);margin:15px 0 7px}
+.seg{display:flex;background:#0f0f16;border:1px solid var(--line);border-radius:12px;padding:3px;margin-top:14px}
+.seg-i{flex:1;text-align:center;font-size:13px;padding:9px 0;border-radius:9px;color:var(--dim);cursor:pointer}
+.seg-i.on{background:#2a2150;color:#fff}
+.ta-wrap{position:relative}
+.ta-wrap textarea{padding-right:48px}
+.micbtn{position:absolute;right:9px;bottom:9px;width:34px;height:34px;border-radius:50%;
+  background:#1e1e2a;border:1px solid var(--line);color:var(--dim);font-size:15px;cursor:pointer}
+.micbtn.on{background:var(--hot);border-color:var(--hot);color:#fff;animation:pulse 1.2s infinite}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{font-size:13px;padding:8px 14px;border-radius:20px;background:#1e1e2a;border:1px solid var(--line);
+  cursor:pointer;color:var(--dim)}
+.chip.on{background:#2a2150;border-color:var(--accent);color:#fff}
+.sheet textarea,.sheet input,.sheet select{width:100%;background:#0f0f16;border:1px solid var(--line);
+  color:var(--txt);border-radius:12px;padding:11px 12px;font-size:14px;font-family:inherit;outline:none}
+.sheet textarea{min-height:80px;resize:vertical;line-height:1.6}
+.sheet input:focus,.sheet textarea:focus{border-color:var(--accent)}
+.row2{display:flex;gap:8px;margin-top:9px}
+.row2>*{flex:1}
+details{margin-top:12px}
+summary{font-size:12px;color:var(--dim);cursor:pointer;padding:6px 0}
+.f{margin-top:8px}
+#aiGo{margin-top:18px;width:100%}
+#aiOut{margin-top:14px}
+.note{font-size:11px;color:#5f5f74;line-height:1.7;margin-top:9px}
+.corpus{cursor:pointer}
+.corpus:active{transform:scale(.995)}
+.sc-del{font-size:12px;color:#5a5a70;padding:2px 4px;flex:none}
+.sc-del:active{color:#ff6b85}
+.corpus-ph{font-size:12px;color:#4a4a5c;padding:2px 4px 6px;line-height:1.7}
+.sc-more{color:#8b5cf6;cursor:pointer;padding:6px 4px 10px}
+
+#guide{position:fixed;inset:0;z-index:60;display:none;align-items:center;justify-content:center;
+  padding:18px;background:rgba(6,6,10,.86);backdrop-filter:blur(8px)}
+#guide.on{display:flex}
+.g-sheet{width:100%;max-width:420px;background:#15151f;border:1px solid #26263a;border-radius:20px;
+  padding:20px 18px calc(20px + env(safe-area-inset-bottom))}
+.g-h{font-size:18px;font-weight:700;margin-bottom:4px}
+.g-sub{font-size:11.5px;color:var(--dim);margin-bottom:15px}
+.g-steps{list-style:none;counter-reset:g;margin:0 0 16px;padding:0}
+.g-steps li{counter-increment:g;display:flex;gap:10px;font-size:13px;line-height:1.6;
+  color:#c3c3d4;margin-bottom:11px}
+.g-steps li::before{content:counter(g);flex:none;width:19px;height:19px;border-radius:50%;
+  background:#2a2150;color:#b49bff;font-size:11px;display:grid;place-items:center;margin-top:2px}
+.g-steps b{color:#fff;font-weight:600}
+.g-demo{background:#0f0f16;border:1px solid var(--line);border-radius:14px;padding:12px;
+  margin-bottom:14px;display:flex;flex-direction:column;gap:7px}
+.g-demo .btn{width:100%}
+.g-demo .n{font-size:11px;color:var(--dim);text-align:center}
+.g-name{display:flex;align-items:center;gap:10px;background:#0f0f16;border:1px solid var(--line);
+  border-radius:12px;padding:10px 12px;margin-bottom:14px}
+.g-name span{font-size:12px;color:var(--dim);flex:none}
+.g-name input{flex:1;min-width:0;background:none;border:none;outline:none;color:var(--txt);
+  font-size:15px;font-family:inherit}
+#guide .btn.primary{width:100%}
+
+#editSheet{position:fixed;inset:0;background:rgba(4,4,8,.72);backdrop-filter:blur(6px);
+  z-index:55;display:none;align-items:flex-end;justify-content:center}
+#editSheet.on{display:flex}
+#editSheet .sheet{border-radius:22px}
+.card.press{transform:scale(.985);filter:brightness(1.18)}
+#toast{position:fixed;left:50%;bottom:calc(26px + env(safe-area-inset-bottom));transform:translateX(-50%) translateY(8px);
+  background:#26263a;color:#f0f0f8;font-size:13px;padding:10px 16px;border-radius:20px;z-index:70;
+  opacity:0;pointer-events:none;transition:.18s;max-width:86%;text-align:center}
+#toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- 曲库 -->
+  <section id="home" class="screen on">
+    <div class="topbar">
+      <h1 id="homeTitle" onclick="renameMe()">Rap 跟练</h1>
+      <span class="sub" id="homeSub"></span>
+      <button class="iconbtn" onclick="showWorks()">♪</button>
+    </div>
+    <div class="list">
+      <div id="secureBar" hidden></div>
+      <div class="ai-entry" onclick="openAI()">
+        <div class="ai-ic">✨</div>
+        <div style="min-width:0">
+          <div class="ai-t">写新稿</div>
+          <div class="ai-s">选曲式，把文字排成能唱的歌词</div>
+        </div>
+        <div style="margin-left:auto;color:var(--dim);font-size:19px">›</div>
+      </div>
+      <div class="ai-entry" onclick="showWorks()">
+        <div class="ai-ic">🎤</div>
+        <div style="min-width:0">
+          <div class="ai-t">我的作品</div>
+          <div class="ai-s" id="worksSub">录过的都在这里，点开就能回放</div>
+        </div>
+        <div style="margin-left:auto;color:var(--dim);font-size:19px">›</div>
+      </div>
+      <div class="ai-entry" onclick="openGuide()">
+        <div class="ai-ic">👋</div>
+        <div style="min-width:0">
+          <div class="ai-t">怎么玩</div>
+          <div class="ai-s">30 秒上手，听一段原唱就知道节奏</div>
+        </div>
+        <div style="margin-left:auto;color:var(--dim);font-size:19px">›</div>
+      </div>
+      <div class="sec-title">我的曲库</div>
+      <div id="scriptList"></div>
+      <div class="sec-title">伴奏曲库</div>
+      <div id="trackList"></div>
+    </div>
+  </section>
+
+  <!-- 跟唱 -->
+  <section id="practice" class="screen">
+    <div class="p-head">
+      <button class="iconbtn" onclick="backHome()">‹</button>
+      <div class="p-title"><div class="t" id="pTitle"></div><div class="a" id="pArtist"></div></div>
+      <button class="switch on" id="origBtn" onclick="toggleOriginal()"><span class="led"></span>原唱</button>
+    </div>
+
+    <div id="lyricsWrap"><div id="lyrics"></div></div>
+
+    <div class="p-foot">
+      <div class="progress" id="progressBar">
+        <div class="track"><div class="fill" id="progFill"></div></div>
+        <div class="knob" id="progKnob"></div>
+      </div>
+      <div class="times"><span id="tCur">0:00</span><span id="tDur">0:00</span></div>
+      <div class="controls">
+        <button class="playbtn" id="playBtn" onclick="togglePlay()">▶</button>
+        <button class="recbtn" id="recBtn" onclick="toggleRecord()"><span class="dot"></span></button>
+      </div>
+      <div class="tips" id="tips"></div>
+    </div>
+
+    <div id="overlay">
+      <div style="text-align:center">
+        <div id="ovNum">3</div>
+        <div id="ovHint"></div>
+        <button id="ovCancel" onclick="cancelRecord()">只听不录</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 作品 -->
+  <section id="works" class="screen">
+    <div class="topbar">
+      <button class="iconbtn" onclick="backHome()">‹</button>
+      <h1>我的作品</h1>
+    </div>
+    <div class="list" id="workList"></div>
+  </section>
+
+  <!-- AI 写词 -->
+  <div id="aiPanel">
+    <div class="sheet">
+      <div class="sheet-h"><span>用 AI 写新稿</span><span class="x" onclick="closeAI()">✕</span></div>
+
+      <div class="seg" id="modeSeg">
+        <div class="seg-i on" data-m="gen" onclick="setMode('gen')">从主题生成</div>
+        <div class="seg-i" data-m="polish" onclick="setMode('polish')">润色我的口述</div>
+      </div>
+
+      <label>风格</label>
+      <div class="chips" id="styleChips"></div>
+
+      <label id="topicLabel">主题 / 想说的话</label>
+      <div class="ta-wrap">
+        <textarea id="aiTopic" placeholder="例如：周末回乡下，网特别差，想装个信号增强器"></textarea>
+        <button class="micbtn" id="micBtn" onclick="dictate()" title="语音输入">🎤</button>
+      </div>
+
+      <div class="row2">
+        <select id="aiLang" onchange="pickTpl()">
+          <option value="en">英文</option>
+          <option value="zh">中文</option>
+        </select>
+        <select id="aiTpl" onchange="pickTpl()"></select>
+      </div>
+      <div class="note" id="tplNote"></div>
+
+      <details>
+        <summary>API 设置（只存在本机浏览器）</summary>
+        <div class="f">
+          <select id="aiProvider" onchange="applyProvider()">
+            <option value="https://api.deepseek.com/v1|deepseek-chat" selected>DeepSeek（推荐，国内直连）</option>
+            <option value="https://api.siliconflow.cn/v1|Qwen/Qwen2.5-7B-Instruct">硅基流动（有免费额度）</option>
+            <option value="https://openrouter.ai/api/v1|meta-llama/llama-3.1-8b-instruct:free">OpenRouter（免费模型）</option>
+            <option value="http://127.0.0.1:11434/v1|qwen2.5:7b">本地 Ollama（完全免费，离线）</option>
+            <option value="">自定义</option>
+          </select>
+        </div>
+        <div class="f"><input id="aiBase" placeholder="Base URL，如 https://api.deepseek.com/v1"></div>
+        <div class="f"><input id="aiModel" placeholder="模型名，如 deepseek-chat"></div>
+        <div class="f"><input id="aiKey" type="password" placeholder="API Key"></div>
+        <div class="note">Key 只存在你本机浏览器里，生成时由浏览器直接请求 AI 服务，不经过任何服务器。</div>
+        <div class="f" id="llmSharedRow" hidden>
+          <div class="note" id="llmSharedState" style="margin:0 0 8px"></div>
+          <div class="row">
+            <button class="btn" onclick="saveServerKey()">存到服务器（共用）</button>
+            <button class="btn" onclick="clearServerKey()">清除共用</button>
+          </div>
+        </div>
+      </details>
+
+      <button class="btn primary" id="aiGo" onclick="genText()">生成</button>
+      <div class="note" id="aiMsg"></div>
+
+      <div id="aiOut" hidden>
+        <label>结果（可以直接改）</label>
+        <textarea id="aiResult"></textarea>
+        <div class="row">
+          <button class="btn" onclick="fitToTpl()">套进曲式</button>
+          <button class="btn" onclick="saveToLibrary()">存进曲库</button>
+          <button class="btn" onclick="copyResult()">复制</button>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <button class="btn primary" onclick="createTrack()">做成曲目</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 结果 / 发布 -->
+  <div id="result">
+    <h2 id="resultTitle">录制完成</h2>
+    <audio id="resultAudio" controls></audio>
+    <div class="mixctl">
+      <div class="mixrow">
+        <span class="mixlab">伴奏</span>
+        <input type="range" id="volInst" min="0" max="150" step="5" value="100" oninput="onVol()">
+        <span class="mixval" id="volInstVal">100%</span>
+      </div>
+      <div class="mixrow">
+        <span class="mixlab">人声</span>
+        <input type="range" id="volVoc" min="0" max="150" step="5" value="100" oninput="onVol()">
+        <span class="mixval" id="volVocVal">100%</span>
+      </div>
+    </div>
+    <div id="resultNote"></div>
+    <div class="row">
+      <button class="btn" onclick="retrySong()">重唱</button>
+      <button class="btn primary" id="pubBtn" onclick="publishWork()">发布</button>
+    </div>
+  </div>
+
+  <!-- 改歌词 -->
+  <div id="editSheet">
+    <div class="sheet">
+      <div class="sheet-h"><span>改歌词</span><span class="x" onclick="closeEdit()">✕</span></div>
+      <label>歌名</label>
+      <input id="edTitle" maxlength="40">
+      <label>歌词</label>
+      <textarea id="edText" style="min-height:180px"></textarea>
+      <div class="note" id="edNote">改完点保存，会按原来的曲式重新分行、重算时间轴。</div>
+      <div class="row" style="margin-top:14px">
+        <button class="btn" onclick="closeEdit()">取消</button>
+        <button class="btn primary" id="edSave" onclick="saveEdit()">保存并重排</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+
+  <!-- 新手引导 -->
+  <div id="guide">
+    <div class="g-sheet">
+      <div class="g-h">30 秒上手</div>
+      <div class="g-sub">跟你唱 K 一样，只是词换成了雅思口语句</div>
+      <div class="g-name">
+        <span>我叫</span>
+        <input id="gName" maxlength="12" placeholder="写个名字，首页会显示「你的练唱」">
+      </div>
+      <ol class="g-steps">
+        <li><span><b>挑一首伴奏</b>点进去，倒数 2 秒自动开录。只想练不想录，点「只听不录」。</span></li>
+        <li><span><b>跟着黄字唱。</b>上滑下滑可以翻歌词，进度条能拖着找句子。</span></li>
+        <li><span><b>停下就进混音页。</b>拖「伴奏 / 人声」调到舒服，点发布。</span></li>
+        <li><span><b>发布的录音</b>都在「我的作品」里，随时回放；写过的稿子留在「我的曲库」。</span></li>
+        <li><span><b>长按曲库里的曲子</b>就能改歌词，保存后自动重排时间轴。</span></li>
+        <li><span><b>作品和曲库存在这台设备的浏览器里</b>，不联网也能听，换设备或清缓存会看不到。</span></li>
+      </ol>
+      <div class="g-demo">
+        <button class="btn" id="gPlay" onclick="toggleGuideClip()">▶ 听 30 秒原唱</button>
+        <div class="n">截自《Part One》，先听听一句话落在几拍里</div>
+      </div>
+      <button class="btn primary" onclick="closeGuide()">知道了，开始</button>
+    </div>
+  </div>
+
+</div>
+
+<script src="fit.js"></script>
+<script src="static-store.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+
+/* 每台设备一个匿名 id：作品、曲库都按它分开，别人手机上打开是空的 */
+const UID = (() => {
+  let u = localStorage.getItem('rap_uid');
+  if(!u){
+    u = 'u' + Math.random().toString(16).slice(2, 10) + Date.now().toString(16).slice(-4);
+    localStorage.setItem('rap_uid', u);
+  }
+  return u;
+})();
+const _fetch = window.fetch.bind(window);
+window.fetch = (url, opt = {}) => {
+  opt.headers = Object.assign({}, opt.headers, {'X-User': UID});
+  return _fetch(url, opt);
+};
+
+let library = [], track = null, lines = [];
+
+let instEl = null, vocalEl = null;
+let playing = false, originalOn = true;
+let rafId = null, curLine = -1;
+let recording = false, mediaRecorder = null, chunks = [], recStart = 0, micStream = null;
+let scrub = null, suppressClick = false;
+
+/* ---------------- 曲库 ---------------- */
+let tracksOpen = false;
+
+async function loadLibrary(){
+  const r = await fetch('/api/library');
+  library = (await r.json()).tracks || [];
+  $('homeSub').textContent = library.length ? `${library.length} 首` : '';
+  const LIMIT = 6;
+  const shown = tracksOpen ? library : library.slice(0, LIMIT);
+  const more = library.length > LIMIT
+    ? `<div class="corpus-ph sc-more" onclick="tracksOpen=!tracksOpen;loadLibrary()">
+         ${tracksOpen ? '收起' : `展开剩下的 ${library.length - LIMIT} 首`}</div>`
+    : '';
+  $('trackList').innerHTML = (shown.map(t => `
+    <div class="card" data-id="${t.id}">
+      ${t.cover
+        ? `<img src="${mediaUrl(t, t.cover)}" alt="">`
+        : `<div class="cover-ph">${esc((t.template_name || '♪').slice(0, 2))}</div>`}
+      <div class="meta">
+        <div class="t"><span class="tt">${esc(t.title)}</span><span class="badge">${t.bpm||''}</span></div>
+        <div class="a">${esc(t.artist)}${t.template_name ? ' · ' + esc(t.template_name) : ''}${t.duration ? ' · ' + fmt(t.duration) : ''}</div>
+      </div>
+      <div style="color:var(--dim);font-size:20px">›</div>
+    </div>`).join('') || `<div class="empty">还没有曲目</div>`) + more;
+
+  $('trackList').querySelectorAll('.card[data-id]').forEach(bindCard);
+}
+
+/* 点一下进入跟唱；长按 0.5 秒改歌词 */
+function bindCard(el){
+  let timer = null, fired = false;
+  const stop = () => { clearTimeout(timer); el.classList.remove('press'); };
+  el.addEventListener('pointerdown', () => {
+    fired = false;
+    el.classList.add('press');
+    timer = setTimeout(() => {
+      fired = true;
+      el.classList.remove('press');
+      editTrack(el.dataset.id);
+    }, 520);
+  });
+  el.addEventListener('pointerup', stop);
+  el.addEventListener('pointercancel', stop);
+  el.addEventListener('pointerleave', stop);
+  el.addEventListener('pointermove', stop);
+  el.addEventListener('click', e => {
+    if(fired){ fired = false; e.preventDefault(); e.stopPropagation(); return; }
+    openTrack(el.dataset.id);
+  });
+  el.addEventListener('contextmenu', e => e.preventDefault());
+}
+
+/* ---------------- 改歌词 ---------------- */
+let editId = null;
+
+async function editTrack(id){
+  let d = {};
+  try{ d = await (await fetch('/api/track/text?id=' + encodeURIComponent(id))).json(); }catch(e){}
+  if(d.error){ toast('这首是内置伴奏，没有可改的词'); return; }
+  editId = id;
+  $('edTitle').value = d.title || '';
+  $('edText').value = d.text || '';
+  $('edNote').textContent = '改完点保存，会按原来的曲式重新分行、重算时间轴。';
+  $('editSheet').classList.add('on');
+}
+
+function closeEdit(){ $('editSheet').classList.remove('on'); editId = null; }
+
+async function saveEdit(){
+  const text = $('edText').value.trim();
+  if(!text){ $('edNote').textContent = '歌词不能是空的'; return; }
+  const btn = $('edSave');
+  btn.disabled = true; btn.textContent = '重排中…';
+  try{
+    const r = await fetch('/api/track/update', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({id: editId, text, title: $('edTitle').value.trim()})
+    });
+    const d = await r.json();
+    if(d.error){ $('edNote').textContent = d.error; return; }
+    closeEdit();
+    await loadLibrary();
+    toast(`已重排 ${d.lines} 行` + (d.dropped ? `，${d.dropped} 句放不下被截掉` : ''));
+  }catch(e){
+    $('edNote').textContent = '保存失败：' + e.message;
+  }finally{
+    btn.disabled = false; btn.textContent = '保存并重排';
+  }
+}
+
+function toast(msg){
+  const el = $('toast');
+  el.textContent = msg;
+  el.classList.add('on');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.remove('on'), 2000);
+}
+
+/* ---------------- 打开曲目 ---------------- */
+async function openTrack(id){
+  track = library.find(t => t.id === id);
+  if(!track) return;
+  stopAll();
+
+  $('pTitle').textContent = track.title;
+  $('pArtist').textContent = track.artist + (track.bpm ? ` · ${track.bpm} BPM` : '');
+  originalOn = !!track.vocal;
+  $('origBtn').style.display = track.vocal ? '' : 'none';
+  $('origBtn').classList.toggle('on', originalOn);
+
+  instEl = new Audio(mediaUrl(track, track.instrumental));
+  vocalEl = track.vocal ? new Audio(mediaUrl(track, track.vocal)) : null;
+  instEl.preload = 'auto';
+  instEl.volume = 1;
+  if(vocalEl){ vocalEl.preload = 'auto'; vocalEl.volume = 1; }
+  playEnd = track.duration || 0;
+
+  // 部分手机浏览器只认「在文档里」的音频元素
+  [instEl, vocalEl].filter(Boolean).forEach(el => {
+    el.style.display = 'none';
+    document.body.appendChild(el);
+    unlockAudio(el);            // iOS 必须在用户手势内先播一次
+  });
+
+  const lrcUrl = track.lrc_url || `/media/${track.id}/${encodeURIComponent(track.lrc)}`;
+  const lrc = await fetch(lrcUrl).then(r => r.text()).catch(() => '');
+  lines = parseLRC(lrc);
+  renderLyrics();
+  curLine = -1;
+  pos = 0;
+  updateProgress();
+
+  [instEl, vocalEl].filter(Boolean).forEach(el => {
+    el.addEventListener('loadedmetadata', () => { if(playEnd) $('tDur').textContent = fmt(playEnd); else if(isFinite(el.duration)) $('tDur').textContent = fmt(el.duration); });
+    el.addEventListener('durationchange', () => { if(playEnd) $('tDur').textContent = fmt(playEnd); else if(isFinite(el.duration)) $('tDur').textContent = fmt(el.duration); });
+    el.addEventListener('timeupdate', () => { if(el === activeEl()) tick(); });
+    el.addEventListener('ended', onEnded);
+    el.addEventListener('error', () => {
+      showTip('音频出错：' + describeMediaError(el), true);
+    });
+    el.addEventListener('waiting', () => { showTip('缓冲中…'); });
+    el.addEventListener('playing', () => {
+      if(!recording) showTip(idleTip(), !canRecord());
+    });
+  });
+  go('practice');
+  // 页面隐藏时算出的位置是 0，显示出来后要重算一次，否则歌词停在顶部
+  curLine = -1;
+  updateProgress();
+
+  beginRecording();   // 进来直接倒数开录，2 秒内可以点「只听不录」
+}
+
+function mediaUrl(track, rel){
+  const s = String(rel || '');
+  // 静态版本直接带相对路径/资源路径
+  if(/^(https?:|blob:|data:|\/|assets\/)/.test(s)) return s;
+  return `/media/${track.id}/` + s.split('/').map(encodeURIComponent).join('/');
+}
+
+function canRecord(){ return !!window.isSecureContext; }
+function idleTip(){
+  return canRecord() ? '戴耳机录音效果更好'
+    : '这个地址录不了歌（浏览器只让 https 用麦克风）';
+}
+
+function showTip(msg, err){
+  const el = $('tips');
+  el.textContent = msg;
+  el.classList.toggle('err', !!err);
+}
+
+function describeMediaError(el){
+  const c = el.error && el.error.code;
+  const msg = {
+    1: '加载被中止',
+    2: '网络错误，音频没下完',
+    3: '解码失败',
+    4: '格式不支持或地址打不开'
+  }[c] || ('未知错误 ' + c);
+  let name = '';
+  try{
+    name = decodeURIComponent((el.currentSrc || el.src || '').split('/').pop() || '');
+  }catch(e){ name = el.src || ''; }
+  if(location.protocol === 'https:'){
+    msg += '（自签名证书可能被手机拦，换 http://' + location.hostname + ':8765 打开试试）';
+  }
+  return name ? `${msg}（${name}，错误码 ${c}）` : msg;
+}
+
+function unlockAudio(el){
+  const v = el.volume;
+  el.volume = 0;
+  const done = () => { try { el.pause(); el.currentTime = 0; } catch(e) {} el.volume = v; };
+  const p = el.play();
+  if(p && p.then) p.then(done).catch(() => { el.volume = v; });
+  else done();
+}
+
+function parseLRC(text){
+  const out = [];
+  text.split(/\r?\n/).forEach(l => {
+    const m = l.match(/^\[(\d+):(\d+(?:\.\d+)?)\](.*)$/);
+    if(m){
+      const t = +m[1]*60 + parseFloat(m[2]);
+      const s = m[3].trim();
+      if(s) out.push({t, s});
+    }
+  });
+  return out.sort((a,b) => a.t - b.t);
+}
+
+function renderLyrics(){
+  $('lyrics').innerHTML = lines.map(l => `<div class="line far">${esc(l.s)}</div>`).join('');
+  $('lyrics').style.transform = 'translateY(0px)';
+}
+
+/* ---------------- 播放 ----------------
+   同一时刻只播一个音频（原唱或伴奏）。手机上并发播放两个 <audio> 会互相打断，
+   表现为「有声音但进度条不动」。 */
+let pos = 0;
+let playEnd = 0;   // 有值时只播到这里（歌词短、伴奏长时截断）
+
+function activeEl(){ return (originalOn && vocalEl) ? vocalEl : instEl; }
+
+function setPos(t){
+  if(!instEl) return;
+  const d = isFinite(instEl.duration) ? instEl.duration : 0;
+  const cap = playEnd || d;
+  pos = Math.max(0, cap ? Math.min(t, cap - 0.05) : t);
+  instEl.currentTime = pos;
+  if(vocalEl) vocalEl.currentTime = pos;
+  updateProgress();
+}
+
+function togglePlay(){
+  if(recording){ showTip('录制中不能暂停，按红色按钮结束'); return; }
+  playing ? pause() : play();
+}
+
+function play(){
+  if(!instEl) return;
+  const a = activeEl();
+
+  // 手机上一开始没缓冲，直接 play() 会静默失败——先等能播了再放
+  if(a.readyState < 2){
+    showTip('音频加载中…');
+    const onReady = () => { if(!playing) play(); };
+    a.addEventListener('canplay', onReady, {once:true});
+    a.addEventListener('error', () => { showTip('音频出错：' + describeMediaError(a), true); }, {once:true});
+    try { a.load(); } catch(e) {}
+    return;
+  }
+
+  a.currentTime = pos;
+  const ret = a.play();
+  if(ret && ret.catch) ret.catch(e => {
+    showTip('播放被拦住了（' + e.name + '），再点一次播放键', true);
+  });
+  playing = true; $('playBtn').textContent = '❚❚';
+  cancelAnimationFrame(rafId);
+  loop();
+}
+
+function pause(){
+  if(instEl) instEl.pause();
+  if(vocalEl) vocalEl.pause();
+  playing = false; $('playBtn').textContent = '▶';
+  cancelAnimationFrame(rafId);
+  updateProgress();
+}
+
+function loop(){
+  if(!playing) return;
+  tick();
+  rafId = requestAnimationFrame(loop);
+}
+
+function tick(){
+  const a = activeEl();
+  if(!a) return;
+  if(!a.paused) pos = a.currentTime;
+  if(playEnd && pos >= playEnd - 0.02){
+    pos = playEnd;
+    pause();
+    return;
+  }
+  updateProgress();
+}
+
+function updateProgress(){
+  if(!instEl) return;
+  const d = isFinite(instEl.duration) ? instEl.duration : 0;
+  const span = playEnd || d;
+  const p = span ? Math.min(1, Math.max(0, pos / span)) : 0;
+  $('progFill').style.width = (p*100).toFixed(2) + '%';
+  $('progKnob').style.left = (p*100).toFixed(2) + '%';
+  $('tCur').textContent = fmt(pos);
+  if(span) $('tDur').textContent = fmt(span);
+  highlight(pos);
+}
+
+function highlight(t){
+  if(scrub && scrub.moved) return;
+  let idx = -1;
+  for(let i = 0; i < lines.length; i++){ if(lines[i].t <= t + 0.12) idx = i; else break; }
+  if(idx === curLine) return;
+  curLine = idx;
+  const nodes = $('lyrics').children;
+  for(let i = 0; i < nodes.length; i++){
+    const d = i - idx;
+    nodes[i].className = 'line ' + (d === 0 ? 'cur' : d === 1 ? 'next' : d < 0 && d > -3 ? 'past' : 'far');
+  }
+  if(idx >= 0 && nodes[idx]){
+    const wrap = $('lyricsWrap').clientHeight;
+    const top = nodes[idx].offsetTop + nodes[idx].offsetHeight/2;
+    $('lyrics').style.transform = `translateY(${(wrap*0.42 - top).toFixed(1)}px)`;
+  }
+}
+
+/* ---------------- 原唱开关 ---------------- */
+function toggleOriginal(){
+  const wasPlaying = playing;
+  const t = pos;
+  if(wasPlaying && activeEl()) activeEl().pause();
+  originalOn = !originalOn;
+  $('origBtn').classList.toggle('on', originalOn);
+  const a = activeEl();
+  if(a){
+    a.currentTime = t;
+    if(wasPlaying) a.play().catch(() => {});
+  }
+  updateProgress();
+}
+
+/* ---------------- 拖动进度 ---------------- */
+(function(){
+  const bar = $('progressBar');
+  let dragging = false;
+  const seek = e => {
+    if(!instEl || recording) return;
+    const d = instEl.duration;
+    if(!isFinite(d) || !d) return;
+    const r = bar.getBoundingClientRect();
+    const cx = e.clientX !== undefined ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
+    const x = Math.min(Math.max(cx - r.left, 0), r.width);
+    setPos((x / r.width) * d);
+  };
+  bar.addEventListener('pointerdown', e => { dragging = true; bar.setPointerCapture(e.pointerId); seek(e); });
+  bar.addEventListener('pointermove', e => { if(dragging) seek(e); });
+  bar.addEventListener('pointerup', () => { dragging = false; });
+  bar.addEventListener('pointercancel', () => { dragging = false; });
+})();
+
+/* 点 / 滑歌词 = 定位到那一句（类似全民K歌的行定位） */
+function lineIndexAt(y){
+  const kids = $('lyrics').children;
+  let best = -1, bestD = 1e9;
+  for(let i = 0; i < kids.length; i++){
+    const r = kids[i].getBoundingClientRect();
+    if(!r.height) continue;
+    const d = Math.abs((r.top + r.height / 2) - y);
+    if(d < bestD){ bestD = d; best = i; }
+  }
+  return best;
+}
+
+/* 列表内部坐标（不受 translateY 影响）里最接近 y 的那一行 */
+function lineAtListY(y){
+  const kids = $('lyrics').children;
+  let best = -1, bestD = 1e9;
+  for(let i = 0; i < kids.length; i++){
+    const c = kids[i].offsetTop + kids[i].offsetHeight / 2;
+    const d = Math.abs(c - y);
+    if(d < bestD){ bestD = d; best = i; }
+  }
+  return best;
+}
+
+function currentTy(){
+  const m = /translateY\(([-\d.]+)px\)/.exec($('lyrics').style.transform || '');
+  return m ? parseFloat(m[1]) : 0;
+}
+
+function markLine(idx){
+  const kids = $('lyrics').children;
+  for(let i = 0; i < kids.length; i++){
+    const d = i - idx;
+    kids[i].className = 'line ' + (d === 0 ? 'preview' : d === 1 ? 'next' : (d < 0 && d > -3) ? 'past' : 'far');
+  }
+}
+
+const wrapEl = $('lyricsWrap');
+
+wrapEl.addEventListener('pointerdown', e => {
+  if(recording || !lines.length) return;
+  scrub = { id: e.pointerId, y0: e.clientY, ty0: currentTy(), moved: false, idx: -1 };
+});
+
+/* 跟手拖动：手指走多少，歌词就滚多少，选中的是屏幕锚点那一行 */
+wrapEl.addEventListener('pointermove', e => {
+  if(!scrub) return;
+  const dy = e.clientY - scrub.y0;
+  if(!scrub.moved){
+    if(Math.abs(dy) <= 6) return;
+    scrub.moved = true;
+    try { wrapEl.setPointerCapture(scrub.id); } catch(err) {}
+  }
+  e.preventDefault();
+  const list = $('lyrics');
+  const wrapH = wrapEl.clientHeight, listH = list.offsetHeight;
+  const ty = Math.min(0, Math.max(wrapH - listH, scrub.ty0 + dy));
+  list.style.transform = `translateY(${ty.toFixed(1)}px)`;
+  const idx = lineAtListY(wrapH * 0.42 - ty);
+  if(idx >= 0 && idx !== scrub.idx){
+    scrub.idx = idx;
+    markLine(idx);
+    showTip(fmt(lines[idx].t) + ' · 松手跳到这里');
+  }
+}, {passive:false});
+
+wrapEl.addEventListener('pointerup', () => {
+  if(!scrub) return;
+  const s = scrub;
+  scrub = null;
+  if(s.moved && s.idx >= 0 && lines[s.idx]){
+    suppressClick = true;
+    setPos(lines[s.idx].t);
+    curLine = -1;
+    if(!playing) play();
+    highlight(pos);
+    showTip(idleTip(), !canRecord());
+  }
+});
+
+wrapEl.addEventListener('pointercancel', () => {
+  const s = scrub;
+  scrub = null;
+  if(s && s.moved){ curLine = -1; highlight(pos); }
+});
+
+/* 点击（没拖动）也定位——用坐标算行，避免被指针捕获改变事件目标 */
+$('lyrics').addEventListener('click', e => {
+  if(suppressClick){ suppressClick = false; return; }
+  if(recording || !lines.length) return;
+  const y = (e.clientY !== undefined ? e.clientY : 0) || 0;
+  const i = y ? lineIndexAt(y) : Array.prototype.indexOf.call($('lyrics').children, e.target.closest('.line'));
+  if(i < 0 || !lines[i]) return;
+  setPos(lines[i].t);
+  if(!playing) play();
+});
+
+/* ---------------- 录音 ---------------- */
+async function toggleRecord(){
+  if(recording){ stopRecording(); return; }
+  beginRecording();
+}
+
+let recToken = 0;
+
+/* 进曲目就自动倒数开录；2-3 秒内点「只听不录」可以取消 */
+async function beginRecording(){
+  if(!instEl || recording) return;
+  if(playing) pause();
+
+  // 浏览器只允许 https（或 localhost）使用麦克风
+  if(!window.isSecureContext){
+    showTip('这个地址录不了歌：换 https://' + location.hostname +
+            ':8766 打开就能录（http 只能听）', true);
+    return;
+  }
+
+  try{
+    micStream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false, noiseSuppression:false, autoGainControl:true}});
+  }catch(err){
+    showTip('拿不到麦克风权限：' + err.message, true);
+    return;
+  }
+
+  const token = ++recToken;
+  recStart = pos;
+  const ov = $('overlay'); ov.classList.add('on');
+  $('ovHint').textContent = '准备好，跟着歌词唱';
+  for(let n = 3; n >= 1; n--){
+    if(token !== recToken) return;
+    $('ovNum').textContent = n;
+    await sleep(700);
+  }
+  if(token !== recToken) return;
+  ov.classList.remove('on');
+
+  const type = pickMime();
+  mediaRecorder = new MediaRecorder(micStream, type ? {mimeType:type} : undefined);
+  chunks = [];
+  mediaRecorder.ondataavailable = e => { if(e.data.size) chunks.push(e.data); };
+  mediaRecorder.onstop = uploadRecording;
+  mediaRecorder.start(1000);
+
+  recording = true;
+  $('recBtn').classList.add('rec');
+  showTip('录制中… 唱完点红钮结束');
+
+  setPos(recStart);
+  play();
+}
+
+function cancelRecord(){
+  recToken++;
+  $('overlay').classList.remove('on');
+  if(micStream){ micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+  showTip('只听不录 · 想唱再按红色按钮');
+}
+
+function stopRecording(){
+  if(!recording) return;
+  recording = false;
+  $('recBtn').classList.remove('rec');
+  try{ mediaRecorder.stop(); }catch(e){}
+  if(micStream) micStream.getTracks().forEach(t => t.stop());
+  pause();
+  showTip('正在合成…');
+}
+
+function onEnded(){
+  if(recording) stopRecording();
+  else { pause(); setPos(0); }
+}
+
+async function uploadRecording(){
+  const blob = new Blob(chunks, {type: chunks[0]?.type || 'audio/webm'});
+  const offset = Math.round(recStart * 1000);
+  try{
+    const r = await fetch('/api/recording', {
+      method:'POST',
+      headers:{'Content-Type':'application/octet-stream','X-Track-Id':track.id,'X-Offset':String(offset)},
+      body: blob
+    });
+    const data = await r.json();
+    if(data.error){ showTip('合成失败：' + data.error, true); return; }
+    showResult(data);
+  }catch(err){
+    showTip('上传失败：' + err.message, true);
+  }
+}
+
+let curWork = null, volTimer = 0;
+
+function showResult(data){
+  curWork = data;
+  $('resultTitle').textContent = '录制完成 · ' + (data.duration ? fmt(data.duration) : '');
+  $('resultAudio').src = data.mix;
+  $('volInst').value = Math.round((data.vol_inst ?? 1) * 100);
+  $('volVoc').value = Math.round((data.vol_vocal ?? 1) * 100);
+  onVolLabel();
+  $('resultNote').textContent = '调一下伴奏和人声的比例，满意就发布。';
+  $('result').classList.add('on');
+  showTip(idleTip(), !canRecord());
+}
+
+function onVolLabel(){
+  $('volInstVal').textContent = $('volInst').value + '%';
+  $('volVocVal').textContent = $('volVoc').value + '%';
+}
+
+function onVol(){
+  onVolLabel();
+  if(!curWork) return;
+  clearTimeout(volTimer);
+  $('resultNote').textContent = '正在重新合成…';
+  volTimer = setTimeout(async () => {
+    try{
+      const r = await fetch('/api/remix', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({id: curWork.id,
+          vol_inst: $('volInst').value / 100, vol_vocal: $('volVoc').value / 100})
+      });
+      const d = await r.json();
+      if(d.error){ $('resultNote').textContent = d.error; return; }
+      const a = $('resultAudio');
+      const at = a.currentTime || 0, wasPlaying = !a.paused;
+      a.src = d.mix;
+      a.addEventListener('loadedmetadata', () => {
+        a.currentTime = at;
+        if(wasPlaying) a.play().catch(() => {});
+      }, {once:true});
+      $('resultNote').textContent = '已按新比例重新合成，还没发布';
+    }catch(e){ $('resultNote').textContent = '合成失败：' + e.message; }
+  }, 500);
+}
+
+async function publishWork(){
+  if(!curWork) return;
+  const btn = $('pubBtn');
+  btn.disabled = true; btn.textContent = '发布中…';
+  try{
+    const r = await fetch('/api/publish', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({id: curWork.id})
+    });
+    const d = await r.json();
+    if(d.error){ $('resultNote').textContent = d.error; return; }
+    curWork = null;
+    stopAll();
+    go('home');
+    loadWorksMeta();
+    showTip('已发布，去「我的作品」里回放');
+  }catch(e){
+    $('resultNote').textContent = '发布失败：' + e.message;
+  }finally{
+    btn.disabled = false; btn.textContent = '发布';
+  }
+}
+
+function closeResult(){ $('result').classList.remove('on'); $('resultAudio').pause(); }
+function retrySong(){
+  closeResult();
+  setPos(0);
+  beginRecording();
+}
+
+/* ---------------- 作品 ---------------- */
+async function showWorks(){
+  const d = await (await fetch('/api/works')).json();
+  const works = d.works || [];
+  let html = works.map(w => `
+    <div class="work">
+      <div class="h"><span>${esc(w.title)}</span>
+        <span class="d">${new Date(w.created*1000).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}
+        · <a class="del" onclick="delWork('${w.id}',event)">删除</a></span></div>
+      <audio controls preload="none" src="${w.mix}"></audio>
+    </div>`).join('');
+  if(!works.length){
+    html = d.legacy
+      ? `<div class="empty">这台设备还没有作品<br>
+           <button class="btn" style="margin-top:14px" onclick="claimLegacy()">认领升级前的 ${d.legacy} 条录音</button></div>`
+      : `<div class="empty">还没唱过<br>回曲库挑一首开始吧</div>`;
+  }
+  $('workList').innerHTML = html;
+  go('works');
+}
+
+async function claimLegacy(){
+  await fetch('/api/works/claim', {method:'POST'});
+  await showWorks();
+  loadWorksMeta();
+  loadScripts();
+}
+
+async function delWork(id, e){
+  e.stopPropagation();
+  if(!confirm('删除这条作品？')) return;
+  await fetch('/api/works/delete', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id})});
+  showWorks();
+}
+
+/* ---------------- 工具 ---------------- */
+function go(name){
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('on'));
+  $(name).classList.add('on');
+}
+function backHome(){ stopAll(); go('home'); loadLibrary(); loadScripts(); loadWorksMeta(); }
+
+async function loadWorksMeta(){
+  try{
+    const w = (await (await fetch('/api/works')).json()).works || [];
+    $('worksSub').textContent = w.length ? `${w.length} 条录音 · 点开就能回放` : '录过的都在这里，点开就能回放';
+  }catch(e){}
+}
+function stopAll(){
+  // 没发布的这条录音，离开就不留了，免得占着文件又找不到
+  if(curWork && curWork.published === false && !recording){
+    fetch('/api/works/delete', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({id: curWork.id})});
+    curWork = null;
+  }
+  recToken++;
+  $('overlay').classList.remove('on');
+  if(recording){ recording = false; $('recBtn').classList.remove('rec');
+    try{ mediaRecorder && mediaRecorder.stop(); }catch(e){}
+    if(micStream) micStream.getTracks().forEach(t => t.stop());
+  }
+  if(instEl) instEl.pause();
+  if(vocalEl) vocalEl.pause();
+  playing = false; $('playBtn').textContent = '▶';
+  cancelAnimationFrame(rafId);
+  closeResult();
+  pos = 0;
+}
+function fmt(s){
+  s = Math.max(0, s || 0);
+  const m = Math.floor(s/60), x = Math.floor(s%60);
+  return `${m}:${String(x).padStart(2,'0')}`;
+}
+function esc(s){ return String(s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
+function pickMime(){
+  const list = ['audio/webm;codecs=opus','audio/webm','audio/mp4','audio/aac'];
+  return list.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
+}
+
+/* ---------------- AI 写词 ---------------- */
+const STYLES = [
+  {k:'slow', n:'慢 · 85', bpm:85,  words:'每行 6–10 词 · 约 7 秒'},
+  {k:'mid',  n:'中 · 108', bpm:108, words:'每行 8–14 词 · 约 5.6 秒'},
+  {k:'fast', n:'快 · 132', bpm:132, words:'每行 6–11 词 · 约 3.5 秒'},
+];
+const STYLE_RULES = {
+  en: {
+    slow: '写成英文歌词，节奏偏慢，情绪浓，适合叙事。句子可以稍长，句尾可押韵。每行一句，不要标题、不要解释。',
+    mid:  '写成英文 Rap 歌词：4/4 拍、句尾押韵、每行节奏短促。不要标题、不要解释。',
+    fast: '写成英文快嘴 Rap：短句密集、押韵多、flow 有冲击力。不要标题、不要解释。',
+  },
+  zh: {
+    slow: '写成中文慢歌歌词：情绪细腻、有画面感，句子可以稍长。每行一句，不要标题、不要解释。',
+    mid:  '写成中文说唱歌词：四四拍、句尾押韵、每行短促。不要标题、不要解释。',
+    fast: '写成中文快嘴说唱：短句密集、押韵多、节奏紧凑。不要标题、不要解释。',
+  }
+};
+const POLISH_RULES = {
+  en: {
+    slow: '改写成英文慢歌句子：保留原意，情绪更浓，句子可以稍长。',
+    mid:  '改写成英文 Rap 句子：保留原意，押韵、节奏短促。',
+    fast: '改写成英文快嘴句子：保留原意，短句密集、押韵多。',
+  },
+  zh: {
+    slow: '改写成中文慢歌句子：保留原意，情绪更浓。',
+    mid:  '改写成中文说唱句子：保留原意，押韵、短促。',
+    fast: '改写成中文快嘴句子：保留原意，短句密集。',
+  }
+};
+
+let aiStyle = 'mid';
+let aiMode = 'gen';
+let TPLS = [];
+let aiTplId = '';
+
+const tierOf = t => t.bpm <= 90 ? 'slow' : (t.bpm >= 125 ? 'fast' : 'mid');
+const tplLines = t => t.sections.reduce((a, s) => a + s.lines, 0);
+const tplSecs = t => Math.round(t.sections.reduce((a, s) => a + (s.bars || 8), 0) * 240 / t.bpm);
+const tplPerLine = t => {
+  const s = t.sections[0];
+  return ((s.bars || 8) / s.lines * 240 / t.bpm).toFixed(1);
+};
+
+async function loadTemplates(){
+  if(TPLS.length) return TPLS;
+  try{
+    const r = await fetch('/api/templates');
+    TPLS = (await r.json()).templates || [];
+  }catch(e){ TPLS = []; }
+  return TPLS;
+}
+
+function fillTplSelect(){
+  const list = TPLS.filter(t => tierOf(t) === aiStyle);
+  if(!list.length) return;
+  if(!list.some(t => t.id === aiTplId)) aiTplId = list[0].id;
+  $('aiTpl').innerHTML = list.map(t =>
+    `<option value="${t.id}" ${t.id === aiTplId ? 'selected' : ''}>${t.name} · ${tplSecs(t)}秒</option>`).join('');
+  pickTpl();
+}
+
+function pickTpl(){
+  aiTplId = $('aiTpl').value;
+  const t = TPLS.find(x => x.id === aiTplId);
+  if(!t){ $('tplNote').textContent = ''; return; }
+  const zh = $('aiLang').value === 'zh';
+  const [lo, hi] = zh ? [t.words[0] * 2, t.words[1] * 2] : t.words;
+  const unit = zh ? '字' : '词';
+  $('tplNote').textContent =
+    `${tplLines(t)} 行 · 每行 ${lo}–${hi} ${unit} / ${tplPerLine(t)} 秒 · `
+    + `${t.sections.map(s => s.name + s.lines).join(' / ')} · 约 ${tplSecs(t)} 秒`;
+}
+
+function setMode(m){
+  aiMode = m;
+  document.querySelectorAll('#modeSeg .seg-i').forEach(x => x.classList.toggle('on', x.dataset.m === m));
+  $('topicLabel').textContent = m === 'polish' ? '口述 / 粘贴原文（保持原语言，只润色）' : '主题 / 想说的话';
+  $('aiTopic').placeholder = m === 'polish'
+    ? '说一段英文，AI 会改成地道口语并纠正语法错误'
+    : '例如：周末回乡下，网特别差，想装个信号增强器';
+}
+
+/* ---------- 语音输入 ---------- */
+const SRClass = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recog = null;
+
+function dictate(){
+  if(!SRClass){
+    $('aiMsg').textContent = '这个浏览器不支持网页语音输入；用输入法键盘上的麦克风键也能达到同样效果';
+    return;
+  }
+  if(recog){ try{ recog.stop(); }catch(e){} return; }
+
+  const base = $('aiTopic').value.trim();
+  let finalText = '';
+  recog = new SRClass();
+  recog.lang = $('aiLang').value === 'en' ? 'en-US' : 'zh-CN';
+  recog.continuous = true;
+  recog.interimResults = true;
+  $('micBtn').classList.add('on');
+  $('aiMsg').textContent = '正在听…再点一次麦克风结束';
+
+  recog.onresult = e => {
+    let interim = '';
+    for(let i = e.resultIndex; i < e.results.length; i++){
+      const r = e.results[i];
+      if(r.isFinal) finalText += r[0].transcript;
+      else interim += r[0].transcript;
+    }
+    $('aiTopic').value = (base ? base + ' ' : '') + finalText + interim;
+  };
+  recog.onerror = e => {
+    $('aiMsg').textContent = '语音识别失败：' + e.error + '（可能需要科学上网，或改用输入法语音键）';
+    recog = null;
+    $('micBtn').classList.remove('on');
+  };
+  recog.onend = () => {
+    recog = null;
+    $('micBtn').classList.remove('on');
+    if($('aiMsg').textContent.startsWith('正在听')) $('aiMsg').textContent = '';
+  };
+  try{ recog.start(); }
+  catch(e){
+    $('aiMsg').textContent = '启动失败：' + e.message;
+    recog = null;
+    $('micBtn').classList.remove('on');
+  }
+}
+
+async function openAI(){
+  $('styleChips').innerHTML = STYLES.map(s =>
+    `<div class="chip ${s.k === aiStyle ? 'on' : ''}" data-k="${s.k}" onclick="pickStyle('${s.k}')">${s.n}</div>`).join('');
+  loadCfg();
+  await refreshServerLLM();
+  updateAiStatus();
+  $('aiPanel').classList.add('on');
+  await loadTemplates();
+  fillTplSelect();
+}
+
+/* 服务器上如果配了共用 Key，这边就不用填 */
+let serverLLM = { default: false, model: '' };
+const onLocalhost = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+
+async function refreshServerLLM(){
+  try{
+    serverLLM = await (await fetch('/api/llm/status')).json();
+  }catch(e){ serverLLM = { default: false, model: '' }; }
+  const row = $('llmSharedRow');
+  if(row) row.hidden = !onLocalhost;
+  const label = $('llmSharedState');
+  if(label){
+    label.textContent = serverLLM.default
+      ? `服务器已配好共用 Key（${serverLLM.model || '默认模型'}），所有设备直接用`
+      : '服务器还没配共用 Key';
+  }
+}
+
+function updateAiStatus(){
+  const mine = $('aiKey').value.trim();
+  $('aiMsg').textContent = mine
+    ? `会走 AI 改写（${$('aiModel').value || '已填 Key'}），中文主题也能写成英文`
+    : (serverLLM.default
+        ? `自动用服务器共用 Key（${serverLLM.model || '默认模型'}），中文主题也能写成英文`
+        : '没填 Key：只把原文按曲式分行，不翻译。想中→英，在下面「API 设置」填个 Key');
+}
+
+async function saveServerKey(){
+  const key = $('aiKey').value.trim();
+  if(!key){ $('llmSharedState').textContent = '先把 Key 填进上面的输入框'; return; }
+  const r = await fetch('/api/llm/config', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({key, base: $('aiBase').value.trim(), model: $('aiModel').value.trim()})
+  });
+  const d = await r.json();
+  if(d.error){ $('llmSharedState').textContent = d.error; return; }
+  await refreshServerLLM();
+  $('aiMsg').textContent = `已存到服务器，所有设备直接用 ${d.model || '这个模型'}`;
+}
+
+async function clearServerKey(){
+  if(!confirm('清掉服务器上的共用 Key？之后每台设备要自己填')) return;
+  await fetch('/api/llm/config', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({key: ''})});
+  await refreshServerLLM();
+  updateAiStatus();
+}
+function closeAI(){ $('aiPanel').classList.remove('on'); }
+function pickStyle(k){
+  aiStyle = k;
+  document.querySelectorAll('#styleChips .chip').forEach(c => c.classList.toggle('on', c.dataset.k === k));
+  fillTplSelect();
+}
+
+const CFG_KEY = 'llm_cfg';
+const DEFAULT_LLM = { base: 'https://api.deepseek.com/v1', model: 'deepseek-chat' };
+
+function loadCfg(){
+  let c = {};
+  try{ c = JSON.parse(localStorage.getItem(CFG_KEY) || '{}'); }catch(e){}
+  $('aiBase').value = c.base || DEFAULT_LLM.base;
+  $('aiModel').value = c.model || DEFAULT_LLM.model;
+  $('aiKey').value = c.key || '';
+  syncProviderSelect();
+}
+
+function norm(u){ return String(u || '').trim().replace(/\/+$/, ''); }
+
+function syncProviderSelect(){
+  const sel = $('aiProvider');
+  const base = norm($('aiBase').value), model = $('aiModel').value.trim();
+  for(const opt of sel.options){
+    if(!opt.value) continue;
+    const [b, m] = opt.value.split('|');
+    if(norm(b) === base && m === model){ sel.value = opt.value; return; }
+  }
+  sel.value = '';
+}
+function saveCfg(){
+  localStorage.setItem(CFG_KEY, JSON.stringify({
+    base: $('aiBase').value.trim(),
+    model: $('aiModel').value.trim(),
+    key: $('aiKey').value.trim()
+  }));
+}
+function applyProvider(){
+  const v = $('aiProvider').value;
+  if(!v) return;
+  const [base, model] = v.split('|');
+  $('aiBase').value = base;
+  $('aiModel').value = model;
+}
+
+async function genText(){
+  const topic = $('aiTopic').value.trim();
+  if(!topic){ $('aiMsg').textContent = '先写点东西'; $('aiTopic').focus(); return; }
+
+  const lang = $('aiLang').value;
+  const tpl = TPLS.find(t => t.id === aiTplId);
+  if(!tpl){ $('aiMsg').textContent = '曲式没加载出来，刷新一下页面'; return; }
+  const base = $('aiBase').value.trim(), model = $('aiModel').value.trim(), key = $('aiKey').value.trim();
+
+  // 自己和服务器都没有 Key，才退回本地排版：只要有文字就能出结果
+  if(!key && !serverLLM.default){
+    $('aiGo').disabled = true; $('aiGo').textContent = '排版中…'; $('aiMsg').textContent = '';
+    try{
+      const r = await fetch('/api/fit', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({text: topic, template: tpl.id})
+      });
+      const d = await r.json();
+      if(d.error){ $('aiMsg').textContent = d.error; return; }
+      $('aiResult').value = d.text;
+      $('aiOut').hidden = false;
+      const drop = (d.info && d.info.dropped) || 0;
+      const hasZh = /[一-鿿]/.test(topic);
+      // 没 Key 时只是把原文按曲式排开，不会翻译：中文进、中文出
+      const langWarn = lang === 'en' && hasZh
+        ? '注意：你写的是中文，没填 Key 我只能排成中文歌词，不会翻译成英文。'
+          + '在「API 设置」填个 DeepSeek Key 就能直接改写成英文。'
+        : '';
+      $('aiMsg').textContent = langWarn ||
+        (`已排成 ${d.stats.lines} 行 · ${Math.round(d.stats.duration)} 秒，可以直接做成曲目`
+         + (drop ? `（有 ${drop} 句放不下，删短一点或换更长的曲式）` : '')
+         + '（想让它改写得更顺口，可在「API 设置」填个免费 Key）');
+    }catch(e){
+      $('aiMsg').textContent = /fetch|network|load/i.test(e.message)
+        ? '连不上本地服务（可能刚重启），再点一次「生成」就好'
+        : '排版失败：' + e.message;
+    }finally{
+      $('aiGo').disabled = false; $('aiGo').textContent = '生成';
+    }
+    return;
+  }
+  const zh = lang === 'zh';
+  const [lo, hi] = zh ? [tpl.words[0] * 2, tpl.words[1] * 2] : tpl.words;
+  const unit = zh ? '字' : '词';
+  const shape = tpl.sections.map(s => `[${s.name}]\n${s.lines} 行`).join('\n');
+  const spec = `曲式：${tpl.name}，${tpl.bpm} BPM，共 ${tplLines(tpl)} 行，约 ${tplSecs(tpl)} 秒。\n`
+    + `结构（严格按这个行数输出，每段前面写方括号标记）：\n${shape}\n`
+    + `每行 ${lo}–${hi} ${unit}，不要超。`;
+  saveCfg();
+  $('aiGo').disabled = true; $('aiGo').textContent = '生成中…'; $('aiMsg').textContent = '';
+
+  try{
+    const langName = zh ? '中文' : '英文';
+    const messages = aiMode === 'polish'
+      ? [
+          {role:'system', content:'你是口语润色教练。保留用户原本想表达的意思和语言，纠正语法与用词错误，改成自然地道的口语。只输出 [Verse]、[Hook] 这样的段落标记和正文，不要编号、不要空行、不要标题、不要任何解释。'},
+          {role:'user', content:`原文：\n${topic}\n\n要求：\n- 语言保持${langName}，不要翻译成别的语言\n- 保留原意，只做润色和纠错\n- ${spec}\n- ${POLISH_RULES[lang][aiStyle]}`}
+        ]
+      : [
+          {role:'system', content:'你是歌词作者。只输出 [Verse]、[Hook] 这样的段落标记和正文歌词，不要编号、不要空行、不要标题、不要任何解释。'},
+          {role:'user', content:`主题：${topic}\n输出语言：${langName}。`
+            + (zh ? '主题是英文的话，先理解意思，再用中文写。'
+                  : '主题是中文的话，先理解意思，再写成英文，正文里不要出现中文字。')
+            + `\n${spec}\n${STYLE_RULES[lang][aiStyle]}`}
+        ];
+    const r = await fetch('/api/llm', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({base_url: base, api_key: key, model, messages})
+    });
+    const d = await r.json();
+    if(d.error){ $('aiMsg').textContent = d.error; return; }
+    $('aiResult').value = cleanLines(d.text);
+    $('aiOut').hidden = false;
+    const u = d.usage || {};
+    const tk = u.total_tokens
+      ? ` · 本次 ${u.total_tokens} tokens（入 ${u.prompt_tokens || 0} / 出 ${u.completion_tokens || 0}）`
+      : '';
+    $('aiMsg').textContent = `AI 已写好（${model}）${tk}`;
+  }catch(e){
+    $('aiMsg').textContent = '失败：' + e.message;
+  }finally{
+    $('aiGo').disabled = false; $('aiGo').textContent = '生成';
+  }
+}
+
+function cleanLines(t){
+  return String(t || '')
+    .replace(/```[a-z]*/gi, '')
+    .split(/\r?\n/)
+    .map(s => s.replace(/^\s*(?:\d+[.)、]|[-*•])\s*/, '').trim())
+    .filter(Boolean)
+    .join('\n');
+}
+
+async function fitToTpl(){
+  const text = $('aiResult').value.trim();
+  if(!text){ $('aiMsg').textContent = '还没有内容'; return; }
+  const tpl = TPLS.find(t => t.id === aiTplId);
+  if(!tpl){ $('aiMsg').textContent = '曲式没加载出来'; return; }
+  $('aiMsg').textContent = '套曲式中…';
+  try{
+    const r = await fetch('/api/fit', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({text, template: aiTplId})
+    });
+    const d = await r.json();
+    if(d.error){ $('aiMsg').textContent = d.error; return; }
+    $('aiResult').value = d.text;
+    const st = d.stats || {};
+    const drop = (d.info && d.info.dropped) || 0;
+    $('aiMsg').textContent =
+      `套进「${tpl.name}」：${st.lines} 行 · ${st.bars} 小节 · ${Math.round(st.duration)} 秒`
+      + (drop ? ` · ${drop} 句放不下被截掉` : '');
+  }catch(e){
+    $('aiMsg').textContent = '失败：' + e.message;
+  }
+}
+
+async function createTrack(){
+  const text = $('aiResult').value.trim();
+  if(!text){ $('aiMsg').textContent = '还没有内容'; return; }
+  const tpl = TPLS.find(t => t.id === aiTplId);
+  if(!tpl){ $('aiMsg').textContent = '曲式没加载出来'; return; }
+  $('aiMsg').textContent = '正在做成曲目…';
+  try{
+    const r = await fetch('/api/track/create', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({text, template: aiTplId})
+    });
+    const d = await r.json();
+    if(d.error){ $('aiMsg').textContent = d.error; return; }
+    closeAI();
+    await loadLibrary();
+    go('home');
+    $('homeSub').textContent = `已生成：${d.track.title}`;
+    window.scrollTo({top:0, behavior:'smooth'});
+  }catch(e){
+    $('aiMsg').textContent = '失败：' + e.message;
+  }
+}
+
+async function copyResult(){
+  const text = $('aiResult').value;
+  try{
+    await navigator.clipboard.writeText(text);
+    $('aiMsg').textContent = '已复制';
+  }catch(e){
+    $('aiResult').select();
+    document.execCommand('copy');
+    $('aiMsg').textContent = '已复制';
+  }
+}
+
+async function saveToLibrary(){
+  const text = $('aiResult').value.trim();
+  if(!text){ $('aiMsg').textContent = '还没有内容'; return; }
+  const first = text.split('\n')[0].replace(/^\[.*?\]$/, '').trim();
+  const title = first.length > 22 ? first.slice(0, 22) + '…' : first;
+  const tpl = TPLS.find(t => t.id === aiTplId);
+  const r = await fetch('/api/corpus', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({title, style: tpl ? tpl.name : '文本', template: aiTplId, text})
+  });
+  const d = await r.json();
+  if(d.error){ $('aiMsg').textContent = d.error; return; }
+  $('aiMsg').textContent = '已存进「我的曲库」，首页能再打开';
+  loadScripts();
+}
+
+let scriptsOpen = false;
+
+async function loadScripts(){
+  let items = [];
+  try{ items = (await (await fetch('/api/corpus')).json()).items || []; }catch(e){ return; }
+  const LIMIT = 6;
+  const shown = scriptsOpen ? items : items.slice(0, LIMIT);
+  const more = items.length > LIMIT
+    ? `<div class="corpus-ph sc-more" onclick="scriptsOpen=!scriptsOpen;loadScripts()">
+         ${scriptsOpen ? '收起' : `展开剩下的 ${items.length - LIMIT} 篇`}</div>`
+    : '';
+  $('scriptList').innerHTML = items.length
+    ? shown.map(c => `
+      <div class="corpus" data-id="${esc(c.id)}">
+        <div class="t">${esc(c.title)}</div>
+        <span class="k">${esc(c.style)}</span>
+        <span class="sc-del" data-id="${esc(c.id)}">✕</span>
+      </div>`).join('') + more
+    : `<div class="corpus-ph">还没有存稿。写一篇，点「存进曲库」就会留在这里</div>`;
+
+  $('scriptList').querySelectorAll('.corpus').forEach(el => {
+    el.onclick = ev => {
+      if(ev.target.classList.contains('sc-del')) return;
+      openScript(el.dataset.id, items.find(x => x.id === el.dataset.id));
+    };
+  });
+  $('scriptList').querySelectorAll('.sc-del').forEach(el => {
+    el.onclick = ev => { ev.stopPropagation(); delScript(el.dataset.id); };
+  });
+}
+
+async function openScript(id, item){
+  if(!item) return;
+  await openAI();
+  const tpl = TPLS.find(t => t.id === item.template);
+  if(tpl){
+    aiStyle = tierOf(tpl);
+    document.querySelectorAll('#styleChips .chip').forEach(c =>
+      c.classList.toggle('on', c.dataset.k === aiStyle));
+    aiTplId = tpl.id;
+    fillTplSelect();
+  }
+  $('aiResult').value = item.text || '';
+  $('aiOut').hidden = false;
+  $('aiMsg').textContent = `已打开《${item.title}》，可以直接套曲式或做成曲目`;
+}
+
+async function delScript(id){
+  if(!confirm('从曲库里删掉这篇稿子？（已经做成的曲目不受影响）')) return;
+  await fetch('/api/corpus/delete', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({id})});
+  loadScripts();
+}
+
+/* ---------------- 身份 ---------------- */
+let MYNAME = localStorage.getItem('rap_name') || '';
+
+function applyName(){
+  $('homeTitle').textContent = MYNAME ? `${MYNAME}的练唱` : 'Rap 跟练';
+  $('homeTitle').title = '点这里改名字';
+}
+
+function saveName(v){
+  MYNAME = String(v || '').trim().slice(0, 12);
+  localStorage.setItem('rap_name', MYNAME);
+  applyName();
+}
+
+function renameMe(){
+  const v = prompt('你的名字（只显示在这台设备上）', MYNAME || '');
+  if(v === null) return;
+  saveName(v);
+}
+
+/* ---------------- 新手引导 ---------------- */
+let guideClip = null;
+
+function openGuide(){
+  $('gPlay').textContent = '▶ 听 30 秒原唱';
+  $('gName').value = MYNAME || '';
+  $('guide').classList.add('on');
+}
+
+function closeGuide(){
+  stopGuideClip();
+  saveName($('gName').value);
+  $('guide').classList.remove('on');
+  localStorage.setItem('rap_seen_guide', '1');
+}
+
+function toggleGuideClip(){
+  const btn = $('gPlay');
+  if(!guideClip){
+    guideClip = new Audio('assets/audio/onboard/clip30.mp3');
+    guideClip.style.display = 'none';
+    document.body.appendChild(guideClip);   // 手机上不在文档里的音频可能不播
+    guideClip.onended = () => { btn.textContent = '▶ 再听一遍'; };
+  }
+  if(guideClip.paused){
+    guideClip.play()
+      .then(() => { btn.textContent = '❚❚ 播放中，想停就点'; })
+      .catch(() => { btn.textContent = '▶ 听 30 秒原唱'; });
+  }else{
+    guideClip.pause();
+    btn.textContent = '▶ 继续听';
+  }
+}
+
+function stopGuideClip(){
+  if(!guideClip) return;
+  guideClip.pause();
+  guideClip.currentTime = 0;
+  $('gPlay').textContent = '▶ 听 30 秒原唱';
+}
+
+(function secureBar(){
+  const h = location.hostname;
+  if(window.isSecureContext || h === 'localhost' || h === '127.0.0.1') return;
+  const el = $('secureBar');
+  const url = 'https://' + h + ':8766' + location.pathname;
+  el.innerHTML = `这个地址只能听，录不了歌（浏览器限制）。` +
+    `<a href="${url}" style="color:#ffd43b;text-decoration:underline">换 https 打开</a>` +
+    `，点「继续访问」之后就能录。`;
+  el.style.cssText = 'background:#221a08;border:1px solid #6b5410;color:#e8d9a8;' +
+    'border-radius:12px;padding:10px 12px;font-size:12.5px;line-height:1.6;margin-bottom:10px';
+  el.hidden = false;
+})();
+
+applyName();
+loadLibrary();
+loadScripts();
+loadWorksMeta();
+setTimeout(() => { if(!localStorage.getItem('rap_seen_guide')) openGuide(); }, 600);
+</script>
+</body>
+</html>
