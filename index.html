@@ -304,7 +304,8 @@ summary{font-size:12px;color:var(--dim);cursor:pointer;padding:6px 0}
       <div class="controls">
         <button class="playbtn" id="playBtn" onclick="togglePlay()">▶</button>
         <button class="recbtn" id="recBtn" onclick="toggleRecord()"><span class="dot"></span></button>
-        <button class="playbtn" id="pauseBtn" onclick="toggleRecPause()" style="display:none;font-size:13px">暂停</button>
+        <button class="playbtn" id="pauseBtn" onclick="toggleRecPause()"
+          style="display:none;width:auto;height:44px;padding:0 18px;border-radius:22px;font-size:14px;background:#2a2440;box-shadow:none">暂停</button>
       </div>
       <div class="tips" id="tips"></div>
     </div>
@@ -931,7 +932,8 @@ function tick(){
   if(!a.paused) pos = a.currentTime;
   if(playEnd && pos >= playEnd - 0.02){
     pos = playEnd;
-    pause();
+    if(recording) stopRecording();
+    else pause();
     return;
   }
   updateProgress();
@@ -984,6 +986,7 @@ function toggleOriginal(){
   }
   const wasPlaying = playing;
   const t = pos;
+  if(audioCtx && audioCtx.state !== 'running') audioCtx.resume().catch(() => {});
   if(wasPlaying && activeEl()) activeEl().pause();
   originalOn = !originalOn;
   $('origBtn').classList.toggle('on', originalOn);
@@ -1199,11 +1202,25 @@ async function beginRecording(){
 
   const token = ++recToken;
   showTip('正在加载伴奏…');
-  const ok = await waitCanPlay(instEl, 45000);
-  if(token !== recToken) return;
-  if(!ok){ showTip('伴奏加载失败或太慢，检查网络后再按红点', true); return; }
+  const prog = setInterval(() => {
+    if(token !== recToken) return clearInterval(prog);
+    const d = isFinite(instEl.duration) ? instEl.duration : 0;
+    let b = 0;
+    try{ b = instEl.buffered.length ? instEl.buffered.end(instEl.buffered.length - 1) : 0; }catch(e){}
+    showTip(d ? `正在加载伴奏… ${Math.min(99, Math.round(b / d * 100))}%` : '正在加载伴奏…');
+  }, 700);
+  const ok = await waitCanPlay(instEl, 180000);
+  clearInterval(prog);
+  if(token !== recToken) return dropMic();
+  if(!ok){ dropMic(); showTip('伴奏加载失败或太慢，检查网络后再按红点', true); return; }
 
   recStart = pos;
+  // 先跳到起唱点、等那一小段缓冲好，否则录音开头会是一截静音
+  setPos(recStart);
+  const okSeek = await waitCanPlay(instEl, 60000);
+  if(token !== recToken) return dropMic();
+  if(!okSeek){ dropMic(); showTip('这句的伴奏还没缓冲好，稍等再按红点', true); return; }
+
   const ov = $('overlay'); ov.classList.add('on');
   $('ovHint').textContent = '准备好，跟着歌词唱';
   for(let n = 3; n >= 1; n--){
@@ -1221,9 +1238,9 @@ async function beginRecording(){
   if(previewEl) previewEl.pause();
 
   const tapOk = await ensureBeatTap();
-  if(token !== recToken) return;
+  if(token !== recToken) return dropMic();
   if(!tapOk){
-    if(micStream){ micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+    dropMic();
     showTip('浏览器的声音引擎还没启动，随便点一下屏幕再按红点', true);
     return;
   }
@@ -1253,10 +1270,14 @@ async function beginRecording(){
   play();
 }
 
+function dropMic(){
+  if(micStream){ micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+}
+
 function cancelRecord(){
   recToken++;
   $('overlay').classList.remove('on');
-  if(micStream){ micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+  dropMic();
   showTip('只听不录 · 想唱再按红色按钮');
 }
 
@@ -1289,7 +1310,7 @@ async function stopRecording(){
   mediaRecorder = null; beatRecorder = null;
   try{ if(micR && micR.state !== 'inactive') micR.stop(); }catch(e){}
   try{ if(beatR && beatR.state !== 'inactive') beatR.stop(); }catch(e){}
-  if(micStream){ micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+  dropMic();
   pause();
   if(origBeforeRec && vocalEl){ originalOn = true; $('origBtn').classList.add('on'); }
   origBeforeRec = false;
@@ -1470,7 +1491,7 @@ function stopAll(){
   if(recording){ recording = false; $('recBtn').classList.remove('rec');
     try{ mediaRecorder && mediaRecorder.stop(); }catch(e){}
     try{ beatRecorder && beatRecorder.stop(); }catch(e){}
-    if(micStream) micStream.getTracks().forEach(t => t.stop());
+    dropMic();
   }
   mediaRecorder = null; beatRecorder = null;
   beatChunks = []; chunks = [];
