@@ -9,6 +9,8 @@
     lrc: 'rap_s_lrc',
   };
   const SR = 48000;
+  // 音频走 jsDelivr：GitHub Pages 在国内拉大文件太慢
+  const CDN = 'https://cdn.jsdelivr.net/gh/zhangshui233/shui-rap-language@main/';
   const DBG = /[?&]debug=1/.test(location.search);
   const log = (...a) => { if (DBG) console.log('[store]', ...a); };
   const json = (obj, status = 200) =>
@@ -344,7 +346,7 @@
         bpm: tpl.bpm,
         template: tpl.id,
         template_name: tpl.name,
-        instrumental: 'assets/audio/library/' + tpl.id + '.mp3',
+        instrumental: CDN + 'assets/snd/library/' + tpl.id + '.mp3',
         vocal: '',
         lrc_url: '/lrc/' + id + '.lrc',
         duration: f.duration,
