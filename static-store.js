@@ -9,8 +9,6 @@
     lrc: 'rap_s_lrc',
   };
   const SR = 48000;
-  // 音频走 jsDelivr：GitHub Pages 在国内拉大文件太慢
-  const CDN = 'https://cdn.jsdelivr.net/gh/zhangshui233/shui-rap-language@main/';
   const DBG = /[?&]debug=1/.test(location.search);
   const log = (...a) => { if (DBG) console.log('[store]', ...a); };
   const json = (obj, status = 200) =>
@@ -105,47 +103,22 @@
   }
   const lrcMap = () => read(LS.lrc, {});
 
-  /* ---------- 音频 ---------- */
-  const instCache = new Map();
-  async function audioBuf(url) {
-    if (instCache.has(url)) { log('inst cached', url); return instCache.get(url); }
-    const p = (async () => {
-      log('inst fetch', url);
-      const r = await nativeFetch(url);
-      if (!r.ok) throw new Error('伴奏加载失败');
-      const ab = await r.arrayBuffer();
-      log('inst bytes', ab.byteLength);
-      const ac = new (window.AudioContext || window.webkitAudioContext)();
-      try {
-        const b = await ac.decodeAudioData(ab);
-        log('inst decoded', b.duration, b.sampleRate);
-        return b;
-      } finally { ac.close(); }
-    })();
-    instCache.set(url, p);
-    try { return await p; } catch (e) { instCache.delete(url); throw e; }
-  }
-  async function decodeRec(blob) {
-    log('rec bytes', blob.size, blob.type);
+  /* ---------- 音频 ----------
+     录音时同时抓「伴奏流」和「人声流」，所以混音只用这两段，不下载整首伴奏。
+     一个作品可以有多段 take：后录的盖住先录的，K 歌式的补录就靠这个。 */
+  async function blobBuf(blob) {
     const ab = await blob.arrayBuffer();
     const ac = new (window.AudioContext || window.webkitAudioContext)();
-    try {
-      const b = await ac.decodeAudioData(ab);
-      log('rec decoded', b.duration, b.sampleRate, b.numberOfChannels);
-      return b;
-    } catch (e) {
-      log('rec decode failed', e && (e.message || e));
-      throw e;
-    } finally { ac.close(); }
+    try { return await ac.decodeAudioData(ab); }
+    finally { ac.close(); }
   }
 
-  /* 和 server.py 的 ffmpeg 链对齐：人声压一下再来个 limiter，然后按倍数混合 */
-  async function renderMix(track, recBlob, offsetSec, volInst, volVocal) {
-    log('mix start', track.instrumental, offsetSec);
-    const [inst, rec] = await Promise.all([audioBuf(track.instrumental), decodeRec(recBlob)]);
-    const total = Math.min(Math.max(offsetSec + rec.duration, 0.1), 3600);
-    log('mix total', total);
+  async function renderWork(work, volInst, volVocal, vocalOnly) {
+    const takes = (work.takes || []).slice().sort((a, b) => a.start - b.start);
+    if (!takes.length) throw new Error('还没有录音');
+    const total = Math.min(Math.max(...takes.map(t => t.start + t.dur), 0.1), 3600);
     const ctx = new OfflineAudioContext(2, Math.ceil(total * SR), SR);
+    log('render takes', takes.length, 'total', total, vocalOnly ? 'vocal' : 'mix');
 
     const gi = ctx.createGain();
     gi.gain.value = volInst;
@@ -166,21 +139,36 @@
     const gv = ctx.createGain();
     gv.gain.value = volVocal;
     const sum = ctx.createGain();
-
-    const si = ctx.createBufferSource();
-    si.buffer = inst;
-    si.connect(gi);
-    if (offsetSec < inst.duration) si.start(0);
-
-    const sv = ctx.createBufferSource();
-    sv.buffer = rec;
-    sv.connect(comp).connect(lim).connect(gv).connect(sum);
     sum.connect(ctx.destination);
-    sv.start(offsetSec);
 
-    log('mix rendering');
+    for (let k = 0; k < takes.length; k++) {
+      const t = takes[k];
+      const end = k + 1 < takes.length ? Math.min(t.start + t.dur, takes[k + 1].start) : t.start + t.dur;
+      const dur = Math.min(end - t.start, t.dur);
+      if (dur <= 0.04) continue;
+
+      if (!vocalOnly) {
+        const beatBlob = await getBlob(`beat:${work.id}:${t.i}`);
+        if (beatBlob) {
+          const buf = await blobBuf(beatBlob);
+          const s = ctx.createBufferSource();
+          s.buffer = buf;
+          s.connect(gi);
+          s.start(t.start, t.trim || 0, Math.min(dur, Math.max(0, buf.duration - (t.trim || 0))));
+        }
+      }
+      const micBlob = await getBlob(`mic:${work.id}:${t.i}`);
+      if (micBlob) {
+        const buf = await blobBuf(micBlob);
+        const s = ctx.createBufferSource();
+        s.buffer = buf;
+        s.connect(comp).connect(lim).connect(gv).connect(sum);
+        s.start(t.start, t.trim || 0, Math.min(dur, Math.max(0, buf.duration - (t.trim || 0))));
+      }
+    }
+
     const out = await ctx.startRendering();
-    log('mix rendered', out.duration);
+    log('rendered', out.duration);
     return { blob: encodeWav(out), duration: out.duration };
   }
 
@@ -296,6 +284,17 @@
       }
       return json({ works: out, legacy: 0 });
     }
+    if (p === '/api/work' && method === 'GET') {
+      const w = read(LS.works, []).find(x => x.id === u.searchParams.get('id'));
+      if (!w) return json({ error: '没有这条录音' }, 404);
+      let vocal = '';
+      try {
+        const pv = await renderWork(w, w.vol_inst || 1, w.vol_vocal || 1, true);
+        await putBlob('pv:' + w.id, pv.blob);
+        vocal = URL.createObjectURL(pv.blob);
+      } catch (e) { /* 没录音就空着 */ }
+      return json({ work: w, vocal, duration: w.duration });
+    }
 
     if (method !== 'POST') return json({ error: 'not found' }, 404);
 
@@ -346,7 +345,7 @@
         bpm: tpl.bpm,
         template: tpl.id,
         template_name: tpl.name,
-        instrumental: CDN + 'assets/snd/library/' + tpl.id + '.mp3',
+        instrumental: 'assets/snd/library/' + tpl.id + '.mp3',
         vocal: '',
         lrc_url: '/lrc/' + id + '.lrc',
         duration: f.duration,
@@ -429,35 +428,102 @@
     if (p === '/api/recording') {
       const trackId = header(opt, 'X-Track-Id');
       const offsetMs = Math.max(0, Math.min(parseInt(header(opt, 'X-Offset') || '0', 10) || 0, 3600000));
-      log('recording req', trackId, offsetMs, opt.body && opt.body.size);
+      const body = opt.body;
+      log('recording req', trackId, offsetMs, body && body.get && body.get('mic') && body.get('mic').size);
       const track = await findTrack(trackId);
       if (!track) return json({ error: 'unknown track' }, 400);
-      const blob = opt.body;
-      if (!blob || !blob.size) return json({ error: 'empty body' }, 400);
-      let mix;
-      try {
-        mix = await renderMix(track, blob, offsetMs / 1000, 1, 1);
-      } catch (e) {
-        return json({ error: '录音解码失败：' + (e.message || e) + '（换 Chrome 或 Edge 试试）' }, 500);
-      }
-      const id = uid(6);
-      await putBlob('rec:' + id, blob);
-      await putBlob('mix:' + id, mix.blob);
-      const work = {
-        id,
-        track: track.id,
-        title: track.title,
-        created: Math.floor(Date.now() / 1000),
-        offset_ms: offsetMs,
-        duration: Math.round(mix.duration * 100) / 100,
-        vol_inst: 1,
-        vol_vocal: 1,
-        published: false,
-      };
+      if (!body || typeof body.get !== 'function') return json({ error: '请求格式不对（要 mic + beat）' }, 400);
+      const mic = body.get('mic'), beat = body.get('beat');
+      if (!mic || !mic.size || !beat || !beat.size) return json({ error: '录音或伴奏为空' }, 400);
+
+      let beatDur;
+      try { beatDur = (await blobBuf(beat)).duration; }
+      catch (e) { return json({ error: '伴奏片段解码失败：' + (e.message || e) }, 500); }
+
+      const workId = header(opt, 'X-Work-Id');
       const list = read(LS.works, []);
-      list.unshift(work);
+      let work = workId ? list.find(w => w.id === workId) : null;
+      if (!work) {
+        work = {
+          id: uid(6),
+          track: track.id,
+          title: track.title,
+          created: Math.floor(Date.now() / 1000),
+          offset_ms: offsetMs,
+          duration: 0,
+          vol_inst: 1,
+          vol_vocal: 1,
+          published: false,
+          takes: [],
+        };
+        list.unshift(work);
+      }
+      const idx = work.takes.reduce((m, t) => Math.max(m, t.i), -1) + 1;
+      await putBlob(`mic:${work.id}:${idx}`, mic);
+      await putBlob(`beat:${work.id}:${idx}`, beat);
+      work.takes.push({ i: idx, start: offsetMs / 1000, trim: 0, dur: Math.min(beatDur, 600) });
+
+      let mix;
+      try { mix = await renderWork(work, 1, 1, false); }
+      catch (e) { return json({ error: '合成失败：' + (e.message || e) }, 500); }
+      await putBlob('mix:' + work.id, mix.blob);
+      dropWorkUrl(work.id);
+      work.duration = Math.round(mix.duration * 100) / 100;
+      work.offset_ms = Math.min(work.offset_ms, offsetMs);
       write(LS.works, list);
-      return json(Object.assign({}, work, { mix: mixUrl(id, mix.blob), rec: '' }));
+      return json(Object.assign({}, work, {
+        mix: mixUrl(work.id, mix.blob),
+        rec: '',
+        take_count: work.takes.length,
+      }));
+    }
+
+    if (p === '/api/work/cut') {
+      const b = await bodyJson(opt);
+      const list = read(LS.works, []);
+      const w = list.find(x => x.id === b.id);
+      if (!w) return json({ error: '没有这条录音' }, 404);
+      const t = Math.max(0, Number(b.t) || 0);
+      const keep = [];
+      for (const take of (w.takes || []).slice().sort((x, y) => x.start - y.start)) {
+        const end = take.start + take.dur;
+        if (b.mode === 'after') {
+          if (take.start >= t) { await delBlob(`mic:${w.id}:${take.i}`); await delBlob(`beat:${w.id}:${take.i}`); continue; }
+          if (end > t) take.dur = Math.max(0.05, t - take.start);
+          keep.push(take);
+        } else {
+          if (end <= t) { await delBlob(`mic:${w.id}:${take.i}`); await delBlob(`beat:${w.id}:${take.i}`); continue; }
+          if (take.start < t) {
+            const cut = t - take.start;
+            take.start = t;
+            take.trim = (take.trim || 0) + cut;
+            take.dur -= cut;
+          }
+          if (take.dur <= 0.05) {
+            await delBlob(`mic:${w.id}:${take.i}`);
+            await delBlob(`beat:${w.id}:${take.i}`);
+            continue;
+          }
+          keep.push(take);
+        }
+      }
+      w.takes = keep;
+      let mix = null, vocal = '';
+      if (keep.length) {
+        try {
+          mix = await renderWork(w, w.vol_inst || 1, w.vol_vocal || 1, false);
+          await putBlob('mix:' + w.id, mix.blob);
+          dropWorkUrl(w.id);
+          w.duration = Math.round(mix.duration * 100) / 100;
+          const pv = await renderWork(w, w.vol_inst || 1, w.vol_vocal || 1, true);
+          await putBlob('pv:' + w.id, pv.blob);
+          vocal = URL.createObjectURL(pv.blob);
+        } catch (e) { /* ignore */ }
+      }
+      write(LS.works, list);
+      return json({ ok: true, work: w, vocal,
+                    mix: mix ? mixUrl(w.id, mix.blob) : '',
+                    duration: w.duration, empty: !keep.length });
     }
 
     if (p === '/api/remix') {
@@ -467,12 +533,8 @@
       if (!w) return json({ error: '没有这条录音' }, 404);
       const vi = Math.max(0, Math.min(Number(b.vol_inst ?? 1) || 0, 2));
       const vv = Math.max(0, Math.min(Number(b.vol_vocal ?? 1) || 0, 2));
-      const track = await findTrack(w.track);
-      if (!track) return json({ error: '原曲不存在' }, 404);
-      const rec = await getBlob('rec:' + w.id);
-      if (!rec) return json({ error: '干声不见了' }, 404);
       let mix;
-      try { mix = await renderMix(track, rec, (w.offset_ms || 0) / 1000, vi, vv); }
+      try { mix = await renderWork(w, vi, vv, false); }
       catch (e) { return json({ error: '重新合成失败：' + (e.message || e) }, 500); }
       await putBlob('mix:' + w.id, mix.blob);
       dropWorkUrl(w.id);
@@ -494,9 +556,15 @@
 
     if (p === '/api/works/delete') {
       const b = await bodyJson(opt);
-      write(LS.works, read(LS.works, []).filter(x => x.id !== b.id));
+      const list = read(LS.works, []);
+      const w = list.find(x => x.id === b.id);
+      write(LS.works, list.filter(x => x.id !== b.id));
       dropWorkUrl(b.id);
-      await delBlob('rec:' + b.id);
+      for (const t of (w && w.takes) || []) {
+        await delBlob(`mic:${b.id}:${t.i}`);
+        await delBlob(`beat:${b.id}:${t.i}`);
+      }
+      await delBlob('pv:' + b.id);
       await delBlob('mix:' + b.id);
       return json({ ok: true });
     }

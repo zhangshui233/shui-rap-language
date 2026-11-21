@@ -68,6 +68,12 @@ body{
               opacity:.75}
 .line.next{color:#8d8da4}
 .line.far{color:#3a3a4a}
+.line.hasvox::after{content:'';display:inline-block;width:5px;height:5px;border-radius:50%;
+  background:#8b5cff;margin-left:8px;vertical-align:middle;opacity:.85}
+#editBar{display:flex;align-items:center;gap:10px;margin:0 16px 6px;padding:8px 10px;
+  background:#1b1630;border:1px solid #3a2a70;border-radius:10px;font-size:12.5px;color:#c9b8ff}
+#editBar[hidden]{display:none}
+#editBar span{flex:1}
 
 /* 倒计时 / 录制提示 */
 #overlay{
@@ -279,7 +285,12 @@ summary{font-size:12px;color:var(--dim);cursor:pointer;padding:6px 0}
     <div class="p-head">
       <button class="iconbtn" onclick="backHome()">‹</button>
       <div class="p-title"><div class="t" id="pTitle"></div><div class="a" id="pArtist"></div></div>
-      <button class="switch on" id="origBtn" onclick="toggleOriginal()"><span class="led"></span>原唱</button>
+      <button class="switch on" id="origBtn" onclick="toggleOriginal()"><span class="led"></span><span id="origLabel">原唱</span></button>
+    </div>
+
+    <div id="editBar" hidden>
+      <span id="editLabel">补录模式</span>
+      <button class="btn" style="padding:4px 10px;font-size:12px" onclick="exitEdit()">退出补录</button>
     </div>
 
     <div id="lyricsWrap"><div id="lyrics"></div></div>
@@ -293,6 +304,7 @@ summary{font-size:12px;color:var(--dim);cursor:pointer;padding:6px 0}
       <div class="controls">
         <button class="playbtn" id="playBtn" onclick="togglePlay()">▶</button>
         <button class="recbtn" id="recBtn" onclick="toggleRecord()"><span class="dot"></span></button>
+        <button class="playbtn" id="pauseBtn" onclick="toggleRecPause()" style="display:none;font-size:13px">暂停</button>
       </div>
       <div class="tips" id="tips"></div>
     </div>
@@ -404,6 +416,7 @@ summary{font-size:12px;color:var(--dim);cursor:pointer;padding:6px 0}
     <div id="resultNote"></div>
     <div class="row">
       <button class="btn" onclick="retrySong()">重唱</button>
+      <button class="btn" onclick="overdub()">补录</button>
       <button class="btn primary" id="pubBtn" onclick="publishWork()">发布</button>
     </div>
   </div>
@@ -480,6 +493,13 @@ let playing = false, originalOn = true;
 let rafId = null, curLine = -1;
 let recording = false, mediaRecorder = null, chunks = [], recStart = 0, micStream = null;
 let scrub = null, suppressClick = false;
+/* 录音：伴奏单独抓一路，混音时不用整首下载；暂停时两路一起停 */
+let recPaused = false, origBeforeRec = false, beatRecorder = null, beatChunks = [];
+let beatTapEl = null, beatTapVocal = null, audioCtx = null, beatDest = null;
+/* 补录：一个作品可以有多段 take，后录的盖住先录的 */
+let editWork = null, previewEl = null;
+/* 生成曲没有真人原唱，用浏览器朗读当跟读 */
+let guideOn = false, voiceList = [];
 
 /* ---------------- 曲库 ---------------- */
 let tracksOpen = false;
@@ -580,7 +600,7 @@ function toast(msg){
 }
 
 /* ---------------- 打开曲目 ---------------- */
-async function openTrack(id){
+async function openTrack(id, workId){
   track = library.find(t => t.id === id);
   if(!track) return;
   stopAll();
@@ -588,8 +608,11 @@ async function openTrack(id){
   $('pTitle').textContent = track.title;
   $('pArtist').textContent = track.artist + (track.bpm ? ` · ${track.bpm} BPM` : '');
   originalOn = !!track.vocal;
-  $('origBtn').style.display = track.vocal ? '' : 'none';
-  $('origBtn').classList.toggle('on', originalOn);
+  const canGuide = !track.vocal && !!track.generated && ('speechSynthesis' in window);
+  guideOn = canGuide;            // 生成曲默认开着跟读，等于给它一条「原唱」
+  $('origBtn').style.display = (track.vocal || canGuide) ? '' : 'none';
+  $('origLabel').textContent = track.vocal ? '原唱' : '跟读';
+  $('origBtn').classList.toggle('on', track.vocal ? originalOn : guideOn);
 
   instEl = new Audio(mediaUrl(track, track.instrumental));
   vocalEl = track.vocal ? new Audio(mediaUrl(track, track.vocal)) : null;
@@ -631,7 +654,136 @@ async function openTrack(id){
   curLine = -1;
   updateProgress();
 
-  beginRecording();   // 进来直接倒数开录，2 秒内可以点「只听不录」
+  if(workId) await enterEdit(workId);
+
+  if(!editWork) beginRecording();   // 新曲目直接倒数开录，2 秒内可以点「只听不录」
+}
+
+/* ---------------- 补录 ---------------- */
+async function enterEdit(workId){
+  let d = {};
+  try{ d = await (await fetch('/api/work?id=' + encodeURIComponent(workId))).json(); }catch(e){}
+  if(d.error){ showTip('这条录音读不出来', true); return; }
+  editWork = d.work;
+  if(d.vocal){
+    previewEl = new Audio(d.vocal);
+    previewEl.preload = 'auto';
+    previewEl.volume = 1;
+    document.body.appendChild(previewEl);
+  }
+  applyVoxMarks();
+  $('editBar').hidden = false;
+  $('editLabel').textContent = `补录模式 · 已有 ${(d.work.takes || []).length} 段`;
+  showTip('拖到某句，按红点从这句开始唱；上划一句删掉它之后，下划一句清空它之前');
+}
+
+function clearEdit(){
+  try{ previewEl && previewEl.pause(); }catch(e){}
+  if(previewEl && previewEl.parentNode) previewEl.parentNode.removeChild(previewEl);
+  previewEl = null;
+  editWork = null;
+  document.querySelectorAll('#lyrics .line').forEach(el => el.classList.remove('hasvox'));
+  $('editBar').hidden = true;
+}
+
+function exitEdit(){
+  clearEdit();
+  curLine = -1;
+  highlight(pos);
+  showTip(idleTip(), !canRecord());
+}
+
+function applyVoxMarks(){
+  if(!editWork) return;
+  const iv = (editWork.takes || []).map(t => [t.start, t.start + t.dur]);
+  const kids = $('lyrics').children;
+  for(let i = 0; i < lines.length; i++){
+    const t = lines[i].t + 0.05;
+    const has = iv.some(([a, b]) => t >= a && t < b);
+    if(kids[i]) kids[i].classList.toggle('hasvox', has);
+  }
+}
+
+async function cutAt(idx, mode){
+  if(!editWork || idx < 0 || !lines[idx]) return;
+  const t = lines[idx].t;
+  const had = (editWork.takes || []).length;
+  try{
+    const r = await fetch('/api/work/cut', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({id: editWork.id, t, mode})
+    });
+    const d = await r.json();
+    if(d.error){ showTip(d.error, true); return; }
+    editWork = d.work;
+    if(d.vocal){
+      if(!previewEl){
+        previewEl = new Audio();
+        previewEl.preload = 'auto';
+        document.body.appendChild(previewEl);
+      }
+      previewEl.src = d.vocal;
+      previewEl.currentTime = pos;
+    }
+    applyVoxMarks();
+    const now = (d.work.takes || []).length;
+    $('editLabel').textContent = `补录模式 · 已有 ${now} 段`;
+    const what = mode === 'after' ? `从「${lines[idx].s}」往后` : `「${lines[idx].s}」之前`;
+    showTip(d.empty
+      ? '这条录音已经清空了，可以按红点从头补录'
+      : (now < had ? `已清空${what}的人声` : `${what}本来就没有人声`));
+  }catch(e){ showTip('操作失败：' + e.message, true); }
+}
+
+function overdub(){
+  if(!curWork) return;
+  const trackId = curWork.track, wid = curWork.id;
+  curWork = null;              // 别让 stopAll 把这条还没发布的录音删了
+  closeResult();
+  openTrack(trackId, wid);
+}
+
+/* ---------------- 跟读（浏览器朗读） ---------------- */
+function loadVoices(){
+  if(!('speechSynthesis' in window)) return;
+  voiceList = speechSynthesis.getVoices() || [];
+}
+if('speechSynthesis' in window){
+  loadVoices();
+  speechSynthesis.addEventListener?.('voiceschanged', loadVoices);
+  speechSynthesis.onvoiceschanged = loadVoices;
+}
+function pickVoice(){
+  if(!voiceList.length) loadVoices();
+  const en = voiceList.filter(v => /^en(-|_)/i.test(v.lang));
+  const male = /guy|david|mark|ryan|eric|roger|christopher|steffan|andrew|brian/i;
+  // 低音男声更接近 rap；没有再退到自然音色
+  return en.find(v => /en-US/i.test(v.lang) && male.test(v.name))
+      || en.find(v => male.test(v.name))
+      || en.find(v => /en-US/i.test(v.lang) && /natural/i.test(v.name))
+      || en.find(v => /en-US/i.test(v.lang) && /google/i.test(v.name))
+      || en[0] || null;
+}
+function speakGuide(idx){
+  if(!guideOn || recording || idx < 0 || !lines[idx] || !('speechSynthesis' in window)) return;
+  const txt = lines[idx].s;
+  const nextT = lines[idx + 1] ? lines[idx + 1].t
+             : (playEnd || (instEl && isFinite(instEl.duration) ? instEl.duration : lines[idx].t + 3));
+  const span = Math.max(0.8, nextT - lines[idx].t);
+  const words = txt.split(/\s+/).filter(Boolean).length;
+  // 一句正好铺满它自己的时值；略快一点、压低音色，听起来更接近念 rap
+  const rate = Math.max(0.95, Math.min(1.6, words / (span * 2.1) * 1.06));
+  const u = new SpeechSynthesisUtterance(txt);
+  u.lang = 'en-US';
+  u.rate = rate;
+  u.pitch = 0.85;
+  const v = pickVoice();
+  if(v) u.voice = v;
+  speechSynthesis.cancel();
+  speechSynthesis.speak(u);
+}
+function stopGuide(){
+  if('speechSynthesis' in window) speechSynthesis.cancel();
 }
 
 function mediaUrl(track, rel){
@@ -713,16 +865,19 @@ function setPos(t){
   pos = Math.max(0, cap ? Math.min(t, cap - 0.05) : t);
   instEl.currentTime = pos;
   if(vocalEl) vocalEl.currentTime = pos;
+  if(previewEl && isFinite(previewEl.duration)) previewEl.currentTime = Math.min(pos, previewEl.duration - 0.05);
+  stopGuide();
   updateProgress();
 }
 
 function togglePlay(){
-  if(recording){ showTip('录制中不能暂停，按红色按钮结束'); return; }
+  if(recording){ toggleRecPause(); return; }
   playing ? pause() : play();
 }
 
 function play(){
   if(!instEl) return;
+  if(audioCtx && audioCtx.state !== 'running') audioCtx.resume().catch(() => {});
   const a = activeEl();
 
   // 手机上一开始没缓冲，直接 play() 会静默失败——先等能播了再放
@@ -731,7 +886,7 @@ function play(){
     const onReady = () => { if(!playing) play(); };
     a.addEventListener('canplay', onReady, {once:true});
     a.addEventListener('error', () => { showTip('音频出错：' + describeMediaError(a), true); }, {once:true});
-    try { a.load(); } catch(e) {}
+    if(a.readyState === 0){ try { a.load(); } catch(e) {} }
     return;
   }
 
@@ -740,6 +895,15 @@ function play(){
   if(ret && ret.catch) ret.catch(e => {
     showTip('播放被拦住了（' + e.name + '），再点一次播放键', true);
   });
+  // 录制时原唱和伴奏要一起走，伴奏那路才不会空
+  if(recording && a !== instEl && instEl){
+    instEl.currentTime = pos;
+    instEl.play().catch(() => {});
+  }
+  if(previewEl && !recording){
+    if(isFinite(previewEl.duration)) previewEl.currentTime = Math.min(pos, previewEl.duration - 0.05);
+    previewEl.play().catch(() => {});
+  }
   playing = true; $('playBtn').textContent = '❚❚';
   cancelAnimationFrame(rafId);
   loop();
@@ -748,6 +912,8 @@ function play(){
 function pause(){
   if(instEl) instEl.pause();
   if(vocalEl) vocalEl.pause();
+  if(previewEl) previewEl.pause();
+  stopGuide();
   playing = false; $('playBtn').textContent = '▶';
   cancelAnimationFrame(rafId);
   updateProgress();
@@ -794,6 +960,10 @@ function highlight(t){
     const d = i - idx;
     nodes[i].className = 'line ' + (d === 0 ? 'cur' : d === 1 ? 'next' : d < 0 && d > -3 ? 'past' : 'far');
   }
+  if(playing){
+    if(idx >= 0) speakGuide(idx);
+    else stopGuide();
+  }
   if(idx >= 0 && nodes[idx]){
     const wrap = $('lyricsWrap').clientHeight;
     const top = nodes[idx].offsetTop + nodes[idx].offsetHeight/2;
@@ -803,6 +973,15 @@ function highlight(t){
 
 /* ---------------- 原唱开关 ---------------- */
 function toggleOriginal(){
+  // 生成曲没有真人原唱：这个按钮切换「浏览器朗读跟读」
+  if(!vocalEl && track && track.generated){
+    guideOn = !guideOn;
+    $('origBtn').classList.toggle('on', guideOn);
+    if(!guideOn) stopGuide();
+    else if(playing && curLine >= 0) speakGuide(curLine);
+    showTip(guideOn ? '跟读=浏览器朗读，垫着拍子念；录音时不会录进去' : idleTip(), guideOn ? false : !canRecord());
+    return;
+  }
   const wasPlaying = playing;
   const t = pos;
   if(wasPlaying && activeEl()) activeEl().pause();
@@ -877,7 +1056,8 @@ const wrapEl = $('lyricsWrap');
 
 wrapEl.addEventListener('pointerdown', e => {
   if(recording || !lines.length) return;
-  scrub = { id: e.pointerId, y0: e.clientY, ty0: currentTy(), moved: false, idx: -1 };
+  scrub = { id: e.pointerId, y0: e.clientY, ty0: currentTy(), t0: performance.now(),
+            dy: 0, moved: false, idx: -1 };
 });
 
 /* 跟手拖动：手指走多少，歌词就滚多少，选中的是屏幕锚点那一行 */
@@ -890,6 +1070,7 @@ wrapEl.addEventListener('pointermove', e => {
     try { wrapEl.setPointerCapture(scrub.id); } catch(err) {}
   }
   e.preventDefault();
+  scrub.dy = dy;
   const list = $('lyrics');
   const wrapH = wrapEl.clientHeight, listH = list.offsetHeight;
   const ty = Math.min(0, Math.max(wrapH - listH, scrub.ty0 + dy));
@@ -908,8 +1089,23 @@ wrapEl.addEventListener('pointerup', () => {
   scrub = null;
   if(s.moved && s.idx >= 0 && lines[s.idx]){
     suppressClick = true;
+    // 补录模式下快速上/下滑 = 切人声，慢拖 = 定位
+    const quick = performance.now() - s.t0 < 420 && Math.abs(s.dy) > 90;
+    if(editWork && quick){
+      curLine = -1;
+      updateProgress();
+      cutAt(s.idx, s.dy < 0 ? 'after' : 'before');
+      return;
+    }
     setPos(lines[s.idx].t);
     curLine = -1;
+    if(editWork){
+      // 补录时定位完就停住，按红点就从这句开唱
+      pause();
+      highlight(pos);
+      showTip(fmt(pos) + ' 起唱 · 按红点从这句开始，后面的保留');
+      return;
+    }
     if(!playing) play();
     highlight(pos);
     showTip(idleTip(), !canRecord());
@@ -941,10 +1137,51 @@ async function toggleRecord(){
 
 let recToken = 0;
 
+/* 伴奏还没缓冲好就开始录，前两秒会静音。先等 canplay */
+function waitCanPlay(el, ms){
+  return new Promise(res => {
+    if(el.readyState >= 3) return res(true);
+    if(el.error) return res(false);
+    const done = ok => { clearTimeout(t); el.removeEventListener('canplay', onC); el.removeEventListener('error', onE); res(ok); };
+    const onC = () => done(true), onE = () => done(false);
+    const t = setTimeout(() => done(el.readyState >= 3), ms || 45000);
+    el.addEventListener('canplay', onC);
+    el.addEventListener('error', onE);
+    // readyState 为 0 说明还没开始下，才需要手动 load；否则会白白重下
+    if(el.readyState === 0){ try{ el.load(); }catch(e){} }
+  });
+}
+
+/* 把伴奏接到 WebAudio：一路给扬声器，一路给录音。
+   原唱也接进来（只给扬声器），这样录制时能听到原唱、又不会被录进伴奏轨。 */
+async function ensureBeatTap(){
+  if(beatTapEl === instEl && beatTapVocal === vocalEl) return true;
+  if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  try{ await audioCtx.resume(); }catch(e){}
+  if(audioCtx.state !== 'running') return false;
+
+  if(beatTapEl !== instEl){
+    const src = audioCtx.createMediaElementSource(instEl);
+    beatDest = audioCtx.createMediaStreamDestination();
+    src.connect(audioCtx.destination);
+    src.connect(beatDest);
+    beatTapEl = instEl;
+  }
+  if(vocalEl && beatTapVocal !== vocalEl){
+    const vsrc = audioCtx.createMediaElementSource(vocalEl);
+    vsrc.connect(audioCtx.destination);
+    beatTapVocal = vocalEl;
+  }
+  return true;
+}
+
 /* 进曲目就自动倒数开录；2-3 秒内点「只听不录」可以取消 */
 async function beginRecording(){
   if(!instEl || recording) return;
   if(playing) pause();
+  recPaused = false;
+  $('pauseBtn').style.display = 'none';
+  $('pauseBtn').textContent = '暂停';
 
   // 浏览器只允许 https（或 localhost）使用麦克风
   if(!window.isSecureContext){
@@ -961,6 +1198,11 @@ async function beginRecording(){
   }
 
   const token = ++recToken;
+  showTip('正在加载伴奏…');
+  const ok = await waitCanPlay(instEl, 45000);
+  if(token !== recToken) return;
+  if(!ok){ showTip('伴奏加载失败或太慢，检查网络后再按红点', true); return; }
+
   recStart = pos;
   const ov = $('overlay'); ov.classList.add('on');
   $('ovHint').textContent = '准备好，跟着歌词唱';
@@ -972,15 +1214,39 @@ async function beginRecording(){
   if(token !== recToken) return;
   ov.classList.remove('on');
 
+  // 录音时只放伴奏：原唱自带同一套鼓点，叠着放会重复
+  origBeforeRec = originalOn;
+  if(originalOn){ originalOn = false; $('origBtn').classList.remove('on'); }
+  if(guideOn) stopGuide();
+  if(previewEl) previewEl.pause();
+
+  const tapOk = await ensureBeatTap();
+  if(token !== recToken) return;
+  if(!tapOk){
+    if(micStream){ micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+    showTip('浏览器的声音引擎还没启动，随便点一下屏幕再按红点', true);
+    return;
+  }
+
   const type = pickMime();
-  mediaRecorder = new MediaRecorder(micStream, type ? {mimeType:type} : undefined);
   chunks = [];
+  mediaRecorder = new MediaRecorder(micStream, type ? {mimeType:type} : undefined);
   mediaRecorder.ondataavailable = e => { if(e.data.size) chunks.push(e.data); };
-  mediaRecorder.onstop = uploadRecording;
   mediaRecorder.start(1000);
+
+  try{
+    beatChunks = [];
+    beatRecorder = new MediaRecorder(beatDest.stream, type ? {mimeType:type} : undefined);
+    beatRecorder.ondataavailable = e => { if(e.data.size) beatChunks.push(e.data); };
+    beatRecorder.start(1000);
+  }catch(e){
+    showTip('录不了伴奏：' + e.message, true);
+    beatRecorder = null;
+  }
 
   recording = true;
   $('recBtn').classList.add('rec');
+  $('pauseBtn').style.display = '';
   showTip('录制中… 唱完点红钮结束');
 
   setPos(recStart);
@@ -994,14 +1260,42 @@ function cancelRecord(){
   showTip('只听不录 · 想唱再按红色按钮');
 }
 
-function stopRecording(){
+function toggleRecPause(){
+  if(!recording || !mediaRecorder) return;
+  if(!recPaused){
+    recPaused = true;
+    try{ mediaRecorder.pause(); }catch(e){}
+    try{ beatRecorder && beatRecorder.pause(); }catch(e){}
+    pause();
+    $('pauseBtn').textContent = '继续';
+    showTip('已暂停 · 点「继续」接着唱，暂停这段不会录进去');
+  }else{
+    recPaused = false;
+    try{ mediaRecorder.resume(); }catch(e){}
+    try{ beatRecorder && beatRecorder.resume(); }catch(e){}
+    play();
+    $('pauseBtn').textContent = '暂停';
+    showTip('录制中… 唱完点红钮结束');
+  }
+}
+
+async function stopRecording(){
   if(!recording) return;
-  recording = false;
+  recording = false; recPaused = false;
   $('recBtn').classList.remove('rec');
-  try{ mediaRecorder.stop(); }catch(e){}
-  if(micStream) micStream.getTracks().forEach(t => t.stop());
+  $('pauseBtn').style.display = 'none';
+  $('pauseBtn').textContent = '暂停';
+  const micR = mediaRecorder, beatR = beatRecorder;
+  mediaRecorder = null; beatRecorder = null;
+  try{ if(micR && micR.state !== 'inactive') micR.stop(); }catch(e){}
+  try{ if(beatR && beatR.state !== 'inactive') beatR.stop(); }catch(e){}
+  if(micStream){ micStream.getTracks().forEach(t => t.stop()); micStream = null; }
   pause();
+  if(origBeforeRec && vocalEl){ originalOn = true; $('origBtn').classList.add('on'); }
+  origBeforeRec = false;
   showTip('正在合成…');
+  await sleep(180);
+  uploadRecording();
 }
 
 function onEnded(){
@@ -1010,19 +1304,25 @@ function onEnded(){
 }
 
 async function uploadRecording(){
-  const blob = new Blob(chunks, {type: chunks[0]?.type || 'audio/webm'});
+  const micBlob = new Blob(chunks, {type: chunks[0]?.type || 'audio/webm'});
+  const beatBlob = new Blob(beatChunks, {type: beatChunks[0]?.type || 'audio/webm'});
+  if(!beatBlob.size){
+    showTip('没抓到伴奏，回到曲目再录一次', true);
+    return;
+  }
   const offset = Math.round(recStart * 1000);
+  const fd = new FormData();
+  fd.append('mic', micBlob, 'mic.webm');
+  fd.append('beat', beatBlob, 'beat.webm');
+  const headers = {'X-Track-Id': track.id, 'X-Offset': String(offset)};
+  if(editWork) headers['X-Work-Id'] = editWork.id;
   try{
-    const r = await fetch('/api/recording', {
-      method:'POST',
-      headers:{'Content-Type':'application/octet-stream','X-Track-Id':track.id,'X-Offset':String(offset)},
-      body: blob
-    });
+    const r = await fetch('/api/recording', {method:'POST', headers, body: fd});
     const data = await r.json();
     if(data.error){ showTip('合成失败：' + data.error, true); return; }
     showResult(data);
   }catch(err){
-    showTip('上传失败：' + err.message, true);
+    showTip('合成失败：' + err.message, true);
   }
 }
 
@@ -1095,8 +1395,17 @@ async function publishWork(){
 }
 
 function closeResult(){ $('result').classList.remove('on'); $('resultAudio').pause(); }
-function retrySong(){
+
+/* 重唱 = 从 0 秒再录一条，新 take 会把旧的整段盖掉 */
+async function retrySong(){
+  const w = curWork;
   closeResult();
+  if(w){
+    const trackId = w.track;
+    curWork = null;            // 别让 stopAll 把这条还没发布的录音删了
+    await openTrack(trackId, w.id);
+  }
+  if(recording) return;
   setPos(0);
   beginRecording();
 }
@@ -1160,8 +1469,15 @@ function stopAll(){
   $('overlay').classList.remove('on');
   if(recording){ recording = false; $('recBtn').classList.remove('rec');
     try{ mediaRecorder && mediaRecorder.stop(); }catch(e){}
+    try{ beatRecorder && beatRecorder.stop(); }catch(e){}
     if(micStream) micStream.getTracks().forEach(t => t.stop());
   }
+  mediaRecorder = null; beatRecorder = null;
+  beatChunks = []; chunks = [];
+  recPaused = false;
+  $('pauseBtn').style.display = 'none';
+  $('pauseBtn').textContent = '暂停';
+  stopGuide(); clearEdit();
   if(instEl) instEl.pause();
   if(vocalEl) vocalEl.pause();
   playing = false; $('playBtn').textContent = '▶';
