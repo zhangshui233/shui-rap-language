@@ -893,10 +893,19 @@ async function ttsBlob(text, speed){
 
 /* ---------------- 免 Key 本地语音（Kitten TTS / WebGPU） ---------------- */
 const KITTEN = {
-  model: 'assets/tts/kitten/kitten_tts_nano_v0_8.onnx',
-  voices: 'assets/tts/kitten/voices.npz',
+  // 优先走 GitHub 代理 CDN（带 ACAO，国内约 200KB/s），失败回落到本站自托管文件
+  model: [
+    'https://gh-proxy.com/https://raw.githubusercontent.com/zhangshui233/shui-rap-language/main/assets/tts/kitten/kitten_tts_nano_v0_8.onnx',
+    'https://hf-mirror.com/KittenML/kitten-tts-nano-0.8-int8/resolve/main/kitten_tts_nano_v0_8.onnx',
+    'assets/tts/kitten/kitten_tts_nano_v0_8.onnx',
+  ],
+  voices: [
+    'https://gh-proxy.com/https://raw.githubusercontent.com/zhangshui233/shui-rap-language/main/assets/tts/kitten/voices.npz',
+    'https://hf-mirror.com/KittenML/kitten-tts-nano-0.8-int8/resolve/main/voices.npz',
+    'assets/tts/kitten/voices.npz',
+  ],
   voice: 'Jasper',
-  cache: 'rap-tts-v1',
+  cache: 'rap-tts-v2',
 };
 let kittenEngineP = null, kittenLoaded = false, kittenProgress = null;
 let kittenQ = Promise.resolve(), freeTtsOn = false;
@@ -904,37 +913,43 @@ let kittenQ = Promise.resolve(), freeTtsOn = false;
 function kittenSupported(){ return !!navigator.gpu; }
 function setTtsProgress(fn){ kittenProgress = fn; }
 
-async function cachedBlobUrl(url){
-  const abs = new URL(url, location.href).href;
-  let blob = null;
-  try{
-    const c = await caches.open(KITTEN.cache);
-    const hit = await c.match(abs);
-    if(hit){
-      blob = await hit.blob();
-    }else{
-      const res = await fetch(abs);
-      if(!res.ok) throw new Error('语音包下载失败 ' + res.status);
-      const total = Number(res.headers.get('Content-Length') || 0);
-      const reader = res.body.getReader();
-      const chunks = [];
-      let loaded = 0;
-      for(;;){
-        const {done, value} = await reader.read();
-        if(done) break;
-        chunks.push(value);
-        loaded += value.length;
-        if(kittenProgress) kittenProgress({loaded, total});
-      }
-      blob = new Blob(chunks, {type:'application/octet-stream'});
-      await c.put(abs, new Response(blob));
-    }
-  }catch(e){
-    const res = await fetch(abs);
-    if(!res.ok) throw new Error('语音包下载失败 ' + res.status);
-    blob = await res.blob();
+async function cachedBlobUrl(sources, cacheKey){
+  const key = new URL(cacheKey, location.href).href;
+  const c = await caches.open(KITTEN.cache).catch(() => null);
+  if(c){
+    const hit = await c.match(key).catch(() => null);
+    if(hit) return URL.createObjectURL(await hit.blob());
   }
-  return URL.createObjectURL(blob);
+  let lastErr = null;
+  for(const src of sources){
+    try{
+      const abs = new URL(src, location.href).href;
+      const res = await fetch(abs);
+      if(!res.ok) throw new Error('HTTP ' + res.status);
+      const total = Number(res.headers.get('Content-Length') || 0);
+      let blob;
+      if(res.body && kittenProgress){
+        const reader = res.body.getReader();
+        const chunks = [];
+        let loaded = 0;
+        for(;;){
+          const {done, value} = await reader.read();
+          if(done) break;
+          chunks.push(value);
+          loaded += value.length;
+          kittenProgress({loaded, total});
+        }
+        blob = new Blob(chunks, {type:'application/octet-stream'});
+      }else{
+        blob = await res.blob();
+      }
+      if(c) await c.put(key, new Response(blob)).catch(() => {});
+      return URL.createObjectURL(blob);
+    }catch(e){
+      lastErr = e;
+    }
+  }
+  throw new Error('语音包下载失败' + (lastErr ? '：' + lastErr.message : ''));
 }
 
 async function kittenEngine(){
@@ -942,8 +957,8 @@ async function kittenEngine(){
   if(!kittenEngineP){
     kittenEngineP = (async () => {
       const m = await import('./vendor/kitten/index.js');
-      const modelUrl = await cachedBlobUrl(KITTEN.model);
-      const voicesUrl = await cachedBlobUrl(KITTEN.voices);
+      const modelUrl = await cachedBlobUrl(KITTEN.model, 'assets/tts/kitten/kitten_tts_nano_v0_8.onnx');
+      const voicesUrl = await cachedBlobUrl(KITTEN.voices, 'assets/tts/kitten/voices.npz');
       try{
         const e = new m.KittenTTSEngine();
         await e.init();
