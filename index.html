@@ -504,8 +504,8 @@ summary{font-size:12px;color:var(--dim);cursor:pointer;padding:6px 0}
   <div id="trackMenu" onclick="if(event.target===this)closeTrackMenu()">
     <div class="tm-card">
       <div class="tm-t" id="tmTitle"></div>
-      <div class="tm-s">这首歌是你自己生成的，可以改词或删掉</div>
-      <button class="btn primary" onclick="menuEdit()">改歌词</button>
+      <div class="tm-s" id="tmSub">这首歌是你自己生成的，可以改词或删掉</div>
+      <button class="btn primary" id="tmEdit" onclick="menuEdit()">改歌词</button>
       <button class="btn warn" onclick="menuDeleteTrack()">删除这首歌</button>
       <button class="btn" onclick="closeTrackMenu()">取消</button>
     </div>
@@ -620,13 +620,18 @@ let tracksOpen = false;
 
 async function loadLibrary(){
   const r = await fetch('/api/library');
-  library = (await r.json()).tracks || [];
+  const d = await r.json();
+  library = d.tracks || [];
+  const hiddenCount = d.hidden || 0;
   $('homeSub').textContent = library.length ? `${library.length} 首` : '';
   const LIMIT = 6;
   const shown = tracksOpen ? library : library.slice(0, LIMIT);
   const more = library.length > LIMIT
     ? `<div class="corpus-ph sc-more" onclick="tracksOpen=!tracksOpen;loadLibrary()">
          ${tracksOpen ? '收起' : `展开剩下的 ${library.length - LIMIT} 首`}</div>`
+    : '';
+  const restore = hiddenCount
+    ? `<div class="corpus-ph sc-more" onclick="restoreHidden()">已隐藏 ${hiddenCount} 首内置曲目 · 点这里恢复</div>`
     : '';
   $('trackList').innerHTML = (shown.map(t => `
     <div class="card" data-id="${t.id}">
@@ -637,10 +642,10 @@ async function loadLibrary(){
         <div class="t"><span class="tt">${esc(t.title)}</span><span class="badge">${t.bpm||''}</span></div>
         <div class="a">${esc(t.artist)}${t.template_name ? ' · ' + esc(t.template_name) : ''}${t.duration ? ' · ' + fmt(t.duration) : ''}</div>
       </div>
-      ${t.generated ? `<button class="card-more" title="改词或删除" aria-label="改词或删除"
-        onclick="event.stopPropagation();trackMenu('${t.id}')"><span class="dots"><i></i><i></i><i></i></span></button>` : ''}
+      <button class="card-more" title="${t.generated ? '改词或删除' : '删除'}" aria-label="${t.generated ? '改词或删除' : '删除'}"
+        onclick="event.stopPropagation();trackMenu('${t.id}')"><span class="dots"><i></i><i></i><i></i></span></button>
       <div style="color:var(--dim);font-size:20px">›</div>
-    </div>`).join('') || `<div class="empty">还没有曲目</div>`) + more;
+    </div>`).join('') || `<div class="empty">还没有曲目</div>`) + more + restore;
 
   $('trackList').querySelectorAll('.card[data-id]').forEach(bindCard);
 }
@@ -648,7 +653,7 @@ async function loadLibrary(){
 /* 点一下进入跟唱；点 ⋯ 或长按 0.5 秒弹出改词 / 删除 */
 function bindCard(el){
   const t = library.find(x => x.id === el.dataset.id);
-  const canMenu = !!(t && t.generated);
+  const canMenu = !!t;
   let timer = null, fired = false;
   const stop = () => { clearTimeout(timer); el.classList.remove('press'); };
   el.addEventListener('pointerdown', () => {
@@ -676,9 +681,13 @@ function bindCard(el){
 let menuTrackId = null;
 function trackMenu(id){
   const t = library.find(x => x.id === id);
-  if(!t || !t.generated) return;
+  if(!t) return;
   menuTrackId = id;
   $('tmTitle').textContent = t.title || '这首歌';
+  $('tmEdit').hidden = !t.generated;
+  $('tmSub').textContent = t.generated
+    ? '这首歌是你自己生成的，可以改词或删掉'
+    : '内置曲目：删除只是从你的曲库隐藏，随时能恢复';
   $('trackMenu').classList.add('on');
 }
 function closeTrackMenu(){
@@ -694,13 +703,25 @@ async function menuDeleteTrack(){
   const id = menuTrackId;
   closeTrackMenu();
   if(!id) return;
-  if(!confirm('删除这首歌？歌词和原唱会一起删掉，已经发布的作品不受影响。')) return;
+  const t = library.find(x => x.id === id);
+  const msg = t && !t.generated
+    ? '把这首内置曲目从曲库隐藏？歌词和伴奏都在，之后能在曲库底部恢复。'
+    : '删除这首歌？歌词和原唱会一起删掉，已经发布的作品不受影响。';
+  if(!confirm(msg)) return;
   await fetch('/api/track/delete', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({id})
   });
   await loadLibrary();
-  toast('已删除');
+  toast(t && !t.generated ? '已从曲库隐藏，可恢复' : '已删除');
+}
+
+async function restoreHidden(){
+  await fetch('/api/track/restore', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'
+  });
+  await loadLibrary();
+  toast('已恢复内置曲目');
 }
 
 /* ---------------- 改歌词 ---------------- */

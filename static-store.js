@@ -7,6 +7,7 @@
     corpus: 'rap_s_corpus',
     works: 'rap_s_works',
     lrc: 'rap_s_lrc',
+    hidden: 'rap_s_hidden',
   };
   const SR = 48000;
   const DBG = /[?&]debug=1/.test(location.search);
@@ -96,7 +97,9 @@
     .then(r => r.json()).catch(() => []));
 
   async function allTracks() {
-    return (await loadBase()).concat(read(LS.tracks, []));
+    const hidden = new Set(read(LS.hidden, []));
+    return (await loadBase()).concat(read(LS.tracks, []))
+      .filter(t => !hidden.has(t.id));
   }
   async function findTrack(id) {
     return (await allTracks()).find(t => t.id === id) || null;
@@ -256,7 +259,7 @@
 
     /* GET */
     if (p === '/api/library' && method === 'GET') {
-      return json({ tracks: await allTracks() });
+      return json({ tracks: await allTracks(), hidden: read(LS.hidden, []).length });
     }
     if (p === '/api/templates' && method === 'GET') {
       return json({ templates: await loadTpls() });
@@ -408,8 +411,18 @@
 
     if (p === '/api/track/delete') {
       const b = await bodyJson(opt);
-      write(LS.tracks, read(LS.tracks, []).filter(x => x.id !== b.id));
-      await delBlob('vocal:' + b.id);
+      const id = String(b.id || '');
+      write(LS.tracks, read(LS.tracks, []).filter(x => x.id !== id));
+      if ((await loadBase()).some(x => x.id === id)) {
+        const hid = read(LS.hidden, []);
+        if (!hid.includes(id)) write(LS.hidden, hid.concat([id]));
+      }
+      await delBlob('vocal:' + id);
+      return json({ ok: true });
+    }
+
+    if (p === '/api/track/restore') {
+      write(LS.hidden, []);
       return json({ ok: true });
     }
 
