@@ -261,6 +261,20 @@ summary{font-size:12px;color:var(--dim);cursor:pointer;padding:6px 0}
 #trackMenu .tm-t{font-size:16px;font-weight:700;text-align:center;word-break:break-word}
 #trackMenu .tm-s{font-size:12px;color:var(--dim);text-align:center;line-height:1.6;margin-bottom:6px}
 .btn.warn{color:#ff8fa3;border-color:#5a2a3a}
+#voxKey{position:fixed;inset:0;display:none;place-items:center;z-index:84;padding:24px;
+  background:rgba(4,4,8,.72);backdrop-filter:blur(6px)}
+#voxKey.on{display:grid}
+#voxKey .vk-card{width:100%;max-width:340px;background:#16161f;border:1px solid #2e2e44;
+  border-radius:20px;padding:22px 20px}
+#voxKey .vk-t{font-size:16px;font-weight:700;margin-bottom:8px}
+#voxKey .vk-s{font-size:12.5px;color:var(--dim);line-height:1.65}
+#voxKey input{width:100%;background:#0f0f16;border:1px solid var(--line);color:var(--txt);
+  border-radius:12px;padding:11px 12px;font-size:14px;font-family:inherit;outline:none}
+#voxKey input:focus{border-color:var(--accent)}
+.vk-adv{margin-top:10px;font-size:12px;color:var(--dim)}
+.vk-adv summary{cursor:pointer;padding:6px 0}
+#voxKey .row{display:flex;gap:8px}
+#voxKey .row .btn{flex:1}
 #coach{position:fixed;inset:0;display:flex;align-items:flex-start;justify-content:center;z-index:75;padding:calc(60px + env(safe-area-inset-top)) 16px 24px;pointer-events:none}
 #coach .coach-card{pointer-events:auto}
 #coach[hidden]{display:none}
@@ -329,7 +343,7 @@ summary{font-size:12px;color:var(--dim);cursor:pointer;padding:6px 0}
     </div>
     <div id="voxBar" hidden>
       <span>这首还没有原唱</span>
-      <button class="btn" style="padding:4px 10px;font-size:12px" onclick="genVocalForCurrent()">生成原唱</button>
+      <button class="btn" id="voxGo" style="padding:4px 10px;font-size:12px" onclick="genVocalForCurrent()">生成原唱</button>
     </div>
 
     <div id="lyricsWrap"><div id="lyrics"></div></div>
@@ -494,6 +508,26 @@ summary{font-size:12px;color:var(--dim);cursor:pointer;padding:6px 0}
       <button class="btn primary" onclick="menuEdit()">改歌词</button>
       <button class="btn warn" onclick="menuDeleteTrack()">删除这首歌</button>
       <button class="btn" onclick="closeTrackMenu()">取消</button>
+    </div>
+  </div>
+
+  <!-- 生成原唱前填 Key -->
+  <div id="voxKey">
+    <div class="vk-card">
+      <div class="vk-t">生成整首原唱</div>
+      <div class="vk-s">需要语音 Key。DeepSeek 只会写字，出声要用硅基流动（新用户有免费额度）。Key 只存在这台浏览器里。</div>
+      <div class="f"><input id="vkKey" type="password" placeholder="语音 API Key（sk-…）"></div>
+      <details class="vk-adv">
+        <summary>高级：换服务商 / 音色</summary>
+        <div class="f"><input id="vkBase" placeholder="Base URL（默认硅基流动）"></div>
+        <div class="f"><input id="vkModel" placeholder="模型（默认 CosyVoice2）"></div>
+        <div class="f"><input id="vkVoice" placeholder="音色（默认 benjamin 男声）"></div>
+      </details>
+      <div class="note" id="vkMsg"></div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn" onclick="closeVoxKey()">取消</button>
+        <button class="btn primary" onclick="saveVoxKey()">保存并生成</button>
+      </div>
     </div>
   </div>
 
@@ -869,7 +903,7 @@ async function buildTrackVocal(track, lrcLines, onStep){
     });
 
     const bufs = new Array(lrcLines.length);
-    let cursor = 0, done = 0, failed = 0;
+    let cursor = 0, done = 0, failed = 0, firstErr = '';
     const worker = async () => {
       while(cursor < lrcLines.length){
         const i = cursor++;
@@ -880,13 +914,16 @@ async function buildTrackVocal(track, lrcLines, onStep){
         try{
           const blob = await ttsBlob(lrcLines[i].s, speed);
           bufs[i] = await ac.decodeAudioData(await blob.arrayBuffer());
-        }catch(e){ failed++; }
+        }catch(e){
+          failed++;
+          if(!firstErr) firstErr = e && e.message ? e.message : String(e);
+        }
         done++;
         if(onStep) onStep(done, lrcLines.length, failed);
       }
     };
     await Promise.all([worker(), worker(), worker()]);
-    if(failed === lrcLines.length) throw new Error('每一句都没合成出来');
+    if(failed === lrcLines.length) throw new Error(firstErr || '每一句都没合成出来');
 
     for(let i = 0; i < bufs.length; i++){
       const b = bufs[i];
@@ -933,11 +970,53 @@ async function saveTrackVocal(trackId, blob){
   return d;
 }
 
+let voxKeyCb = null;
+function askVoxKey(cb, msg){
+  voxKeyCb = cb || null;
+  const c = ttsCfg();
+  $('vkKey').value = '';
+  $('vkBase').value = c.base || TTS_DEFAULT.base;
+  $('vkModel').value = c.model || '';
+  $('vkVoice').value = c.voice || '';
+  $('vkMsg').textContent = msg || '';
+  $('voxKey').classList.add('on');
+  setTimeout(() => $('vkKey').focus(), 60);
+}
+function closeVoxKey(){
+  $('voxKey').classList.remove('on');
+  voxKeyCb = null;
+}
+function saveVoxKey(){
+  const key = $('vkKey').value.trim();
+  if(!key){ $('vkMsg').textContent = '先填 Key，再点保存'; return; }
+  let c = {};
+  try{ c = JSON.parse(localStorage.getItem(CFG_KEY) || '{}'); }catch(e){}
+  c.ttsKey = key;
+  c.ttsBase = $('vkBase').value.trim();
+  c.ttsModel = $('vkModel').value.trim();
+  c.ttsVoice = $('vkVoice').value.trim();
+  localStorage.setItem(CFG_KEY, JSON.stringify(c));
+  ['ttsKey','ttsBase','ttsModel','ttsVoice'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.value = c[id] || '';
+  });
+  const cb = voxKeyCb;
+  closeVoxKey();
+  if(cb) cb();
+}
+
 async function genVocalForCurrent(){
   if(!track) return;
   loadCfg();
-  const bar = $('voxBar'), lab = bar.querySelector('span');
+  const bar = $('voxBar'), lab = bar.querySelector('span'), btn = $('voxGo');
   bar.hidden = false;
+  const c = ttsCfg();
+  if(!c.key){
+    lab.textContent = '还差一个语音 Key，填完就能合成整首原唱';
+    askVoxKey(() => genVocalForCurrent(), '硅基流动的 Key 填这里；填完点「保存并生成」。');
+    return;
+  }
+  btn.disabled = true;
   try{
     lab.textContent = '正在读取歌词…';
     const lrc = await (await fetch('/lrc/' + encodeURIComponent(track.id) + '.lrc')).text();
@@ -948,9 +1027,16 @@ async function genVocalForCurrent(){
     await saveTrackVocal(track.id, built.blob);
     await loadLibrary();
     await openTrack(track.id);
+    if(built.failed) toast(`原唱已生成，有 ${built.failed} 句没合成`);
   }catch(e){
     bar.hidden = false;
-    lab.textContent = '原唱没生成：' + e.message;
+    const msg = e && e.message ? e.message : String(e);
+    lab.textContent = '原唱没生成：' + msg;
+    if(/key|401|403|unauthor|invalid/i.test(msg)){
+      askVoxKey(() => genVocalForCurrent(), 'Key 好像没通过：' + msg);
+    }
+  }finally{
+    btn.disabled = false;
   }
 }
 
