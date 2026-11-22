@@ -342,7 +342,7 @@ summary{font-size:12px;color:var(--dim);cursor:pointer;padding:6px 0}
       <button class="btn" style="padding:4px 10px;font-size:12px" onclick="exitEdit()">退出补录</button>
     </div>
     <div id="voxBar" hidden>
-      <span>这首还没有原唱</span>
+      <span>没原唱 · 可先听「朗读」示范</span>
       <button class="btn" id="voxGo" style="padding:4px 10px;font-size:12px" onclick="genVocalForCurrent()">生成原唱</button>
     </div>
 
@@ -766,7 +766,7 @@ async function openTrack(id, workId){
   const canGuide = !vocalEl && !!track.generated && ('speechSynthesis' in window);
   guideOn = canGuide;            // 生成曲没有音频原唱时，用浏览器朗读兜底
   $('origBtn').style.display = (vocalEl || canGuide) ? '' : 'none';
-  $('origLabel').textContent = vocalEl ? '原唱' : '跟读';
+  $('origLabel').textContent = vocalEl ? '原唱' : '朗读';
   $('origBtn').classList.toggle('on', vocalEl ? originalOn : guideOn);
   $('voxBar').hidden = !(track.generated && !vocalEl);
   instEl.preload = 'auto';
@@ -809,7 +809,7 @@ async function openTrack(id, workId){
 
   if(workId) await enterEdit(workId);
   else showTip(guideOn
-      ? '点播放听跟读 · 上下滑选句 · 按红点从这句开录'
+      ? '点播放听朗读示范 · 上下滑选句 · 按红点从这句开录'
       : '上下滑选句 · 点播放听伴奏 · 按红点从这句开录', !canRecord());
 }
 
@@ -1400,10 +1400,10 @@ function toggleOriginal(){
     $('origBtn').classList.toggle('on', guideOn);
     if(!guideOn){
       stopGuide();
-      showTip('跟读已关，只剩伴奏', !canRecord());
+      showTip('朗读已关，只剩伴奏', !canRecord());
     }else{
-      showTip(recording ? '跟读已开，但录音时不出声（避免录进去）'
-                        : '跟读=浏览器朗读，垫着拍子念；录音时自动静音', !canRecord());
+      showTip(recording ? '朗读已开，但录音时不出声（避免录进去）'
+                        : '朗读=浏览器念词，不用 Key；录音时自动静音', !canRecord());
       if(!recording && !playing) play();
       else if(playing && curLine >= 0) speakGuide(curLine);
     }
@@ -2570,24 +2570,24 @@ function closeGuide(){
 }
 
 /* ---------------- 一句话做成歌 ---------------- */
-const DEMO_TOPIC = '生活就像海洋，只有意志坚定的人才能学会游泳。';
+const DEMO_TOPIC = '生活就像海洋，充满想象力的游泳吧。';
 const DEMO_EN = [
-  'Life is like the ocean, cold and wide and deep',
-  'Waves keep coming at you when you try to sleep',
-  "I don't wait for calm seas, I learn to ride the tide",
-  'Every time I fall down, I stand up and I try',
-  'Only the strong-willed learn how to swim',
-  'Only the patient ones keep the dream in them',
-  "When the water pulls me under, I don't let it win",
-  'Life is like the ocean, so I swim, I swim',
-  'I used to be scared of the dark blue night',
-  'Now I trust my arms and I hold my breath tight',
-  'Storms will come and go, but my heart stays strong',
-  'I keep moving forward, humming my own song',
-  'Only the strong-willed learn how to swim',
-  'Only the patient ones keep the dream in them',
-  "When the water pulls me under, I don't let it win",
-  'Life is like the ocean, so I swim, I swim'
+  'Life is like the ocean, wide and full of dreams',
+  "Every wave's a story, nothing's what it seems",
+  'I dive into the blue with a picture in my mind',
+  'Swimming with imagination, I leave the fear behind',
+  'Life is like the ocean, so swim with imagination',
+  'Make your own current, build your own vibration',
+  'If the tide feels heavy, dream a better sea',
+  'Life is like the ocean, swim wild and free',
+  'I used to float and wait for someone else to steer',
+  'Now I paint the water, every color clear',
+  'Storms are only sketches that I draw in the rain',
+  'I swim through the canvas and I feel no pain',
+  'Life is like the ocean, so swim with imagination',
+  'Make your own current, build your own vibration',
+  'If the tide feels heavy, dream a better sea',
+  'Life is like the ocean, swim wild and free'
 ].join('\n');
 
 let guidedDemo = false, coachIdx = -1;
@@ -2612,7 +2612,7 @@ function renderCoach(){
     t = '歌已经做好了';
     txt = '原唱这次没合成出来（API 设置里填个语音 Key 就能补）。点播放听伴奏，一样能跟着唱。';
   }else if(!vocalEl && coachIdx === 2){
-    txt = '这首暂时没有原唱，先用伴奏唱。之后在曲库里点「生成原唱」就能听示范。';
+    txt = '这首暂时没有原唱。点右上角「朗读」，不用 Key 也能听浏览器念词。';
   }
   $('coachT').textContent = t;
   $('coachS').textContent = txt;
