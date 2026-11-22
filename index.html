@@ -412,7 +412,7 @@ summary{font-size:12px;color:var(--dim);cursor:pointer;padding:6px 0}
         </div>
       </details>
 
-      <button class="btn primary" id="aiGo" onclick="genText()">生成</button>
+      <button class="btn" id="aiGo" onclick="genText()">AI 写词</button>
       <div class="note" id="aiMsg"></div>
 
       <div id="aiOut" hidden>
@@ -1961,6 +1961,7 @@ function pickTpl(){
 function setMode(m){
   aiMode = m;
   document.querySelectorAll('#modeSeg .seg-i').forEach(x => x.classList.toggle('on', x.dataset.m === m));
+  $('aiGo').textContent = m === 'polish' ? 'AI 润色' : 'AI 写词';
   $('topicLabel').textContent = m === 'polish' ? '口述 / 粘贴原文（保持原语言，只润色）' : '主题 / 想说的话';
   $('aiTopic').placeholder = m === 'polish'
     ? '说一段英文，AI 会改成地道口语并纠正语法错误'
@@ -2017,6 +2018,7 @@ function dictate(){
 async function openAI(){
   $('styleChips').innerHTML = STYLES.map(s =>
     `<div class="chip ${s.k === aiStyle ? 'on' : ''}" data-k="${s.k}" onclick="pickStyle('${s.k}')">${s.n}</div>`).join('');
+  setMode(aiMode);
   loadCfg();
   await refreshServerLLM();
   updateAiStatus();
@@ -2493,7 +2495,8 @@ async function startGuidedDemo(){
   document.querySelectorAll('#styleChips .chip').forEach(c =>
     c.classList.toggle('on', c.dataset.k === 'mid'));
   fillTplSelect();
-  $('aiMsg').textContent = '英文已经写好了。先在下面挑一个节奏，再点「生成新曲」。';
+  $('aiMsg').textContent = '英文已经写好了。先在风格里挑一个节奏，再点最下面的「生成新曲」。';
+  setTimeout(() => $('aiOut').scrollIntoView({block:'start'}), 80);
 }
 
 /* 直接进 30 秒试唱曲目，让用户真的唱一遍 */
