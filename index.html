@@ -273,7 +273,7 @@ summary{font-size:12px;color:var(--dim);cursor:pointer;padding:6px 0}
         </div>
         <div style="margin-left:auto;color:var(--dim);font-size:19px">›</div>
       </div>
-      <div class="sec-title">我的曲库</div>
+      <div class="sec-title">草稿箱</div>
       <div id="scriptList"></div>
       <div class="sec-title">伴奏曲库</div>
       <div id="trackList"></div>
@@ -388,7 +388,7 @@ summary{font-size:12px;color:var(--dim);cursor:pointer;padding:6px 0}
         <textarea id="aiResult"></textarea>
         <div class="row">
           <button class="btn" onclick="fitToTpl()">套进曲式</button>
-          <button class="btn" onclick="saveToLibrary()">存进曲库</button>
+          <button class="btn" onclick="saveToLibrary()">存进草稿箱</button>
           <button class="btn" onclick="copyResult()">复制</button>
         </div>
         <div class="row" style="margin-top:10px">
@@ -450,12 +450,12 @@ summary{font-size:12px;color:var(--dim);cursor:pointer;padding:6px 0}
         <input id="gName" maxlength="12" placeholder="写个名字，首页会显示「你的练唱」">
       </div>
       <ol class="g-steps">
-        <li><span><b>挑一首伴奏</b>点进去，倒数 2 秒自动开录。只想练不想录，点「只听不录」。</span></li>
-        <li><span><b>跟着黄字唱。</b>上滑下滑可以翻歌词，进度条能拖着找句子。</span></li>
+        <li><span><b>挑一首伴奏</b>点进去先听，滑到要唱的那句，按红点从这句开录。</span></li>
+        <li><span><b>跟着黄字唱。</b>上下滑翻歌词，滑到某句停住，红点就从那句开录。</span></li>
         <li><span><b>停下就进混音页。</b>拖「伴奏 / 人声」调到舒服，点发布。</span></li>
-        <li><span><b>发布的录音</b>都在「我的作品」里，随时回放；写过的稿子留在「我的曲库」。</span></li>
-        <li><span><b>长按曲库里的曲子</b>就能改歌词，保存后自动重排时间轴。</span></li>
-        <li><span><b>作品和曲库存在这台设备的浏览器里</b>，不联网也能听，换设备或清缓存会看不到。</span></li>
+        <li><span><b>发布的录音</b>都在「我的作品」里，随时回放；写过的稿子留在「草稿箱」。</span></li>
+        <li><span><b>长按草稿箱里的曲子</b>就能改歌词，保存后自动重排时间轴。</span></li>
+        <li><span><b>作品和草稿存在这台设备的浏览器里</b>，不联网也能听，换设备或清缓存会看不到。</span></li>
       </ol>
       <div class="g-demo">
         <button class="btn" id="gPlay" onclick="toggleGuideClip()">▶ 听 30 秒原唱</button>
@@ -656,8 +656,9 @@ async function openTrack(id, workId){
   updateProgress();
 
   if(workId) await enterEdit(workId);
-
-  if(!editWork) beginRecording();   // 新曲目直接倒数开录，2 秒内可以点「只听不录」
+  else showTip(guideOn
+      ? '点播放听跟读 · 上下滑选句 · 按红点从这句开录'
+      : '上下滑选句 · 点播放听伴奏 · 按红点从这句开录', !canRecord());
 }
 
 /* ---------------- 补录 ---------------- */
@@ -914,6 +915,8 @@ function play(){
     previewEl.play().catch(() => {});
   }
   playing = true; $('playBtn').textContent = '❚❚';
+  // timeupdate 可能先于 playing 置位跑过一次 highlight，把当前句吃掉了
+  if(guideOn){ curLine = -1; highlight(pos); }
   cancelAnimationFrame(rafId);
   loop();
 }
@@ -987,9 +990,15 @@ function toggleOriginal(){
   if(!vocalEl && track && track.generated){
     guideOn = !guideOn;
     $('origBtn').classList.toggle('on', guideOn);
-    if(!guideOn) stopGuide();
-    else if(playing && curLine >= 0) speakGuide(curLine);
-    showTip(guideOn ? '跟读=浏览器朗读，垫着拍子念；录音时不会录进去' : idleTip(), guideOn ? false : !canRecord());
+    if(!guideOn){
+      stopGuide();
+      showTip('跟读已关，只剩伴奏', !canRecord());
+    }else{
+      showTip(recording ? '跟读已开，但录音时不出声（避免录进去）'
+                        : '跟读=浏览器朗读，垫着拍子念；录音时自动静音', !canRecord());
+      if(!recording && !playing) play();
+      else if(playing && curLine >= 0) speakGuide(curLine);
+    }
     return;
   }
   const wasPlaying = playing;
@@ -1065,10 +1074,20 @@ function markLine(idx){
 
 const wrapEl = $('lyricsWrap');
 
+/* 歌词可拖范围：首句能落到锚点（可能为正），末句也能落到锚点 */
+function lyricBounds(){
+  const wrapH = wrapEl.clientHeight, list = $('lyrics'), listH = list.offsetHeight;
+  const kids = list.children, anchor = wrapH * 0.42;
+  const c0 = kids.length ? kids[0].offsetTop + kids[0].offsetHeight / 2 : 0;
+  const cN = kids.length ? kids[kids.length - 1].offsetTop + kids[kids.length - 1].offsetHeight / 2 : 0;
+  return { lo: Math.min(wrapH - listH, anchor - cN), hi: Math.max(0, anchor - c0) };
+}
+
 wrapEl.addEventListener('pointerdown', e => {
   if(recording || !lines.length) return;
+  const b = lyricBounds();
   scrub = { id: e.pointerId, y0: e.clientY, ty0: currentTy(), t0: performance.now(),
-            dy: 0, moved: false, idx: -1 };
+            dy: 0, moved: false, idx: -1, lo: b.lo, hi: b.hi, wasPlaying: playing };
 });
 
 /* 跟手拖动：手指走多少，歌词就滚多少，选中的是屏幕锚点那一行 */
@@ -1083,8 +1102,8 @@ wrapEl.addEventListener('pointermove', e => {
   e.preventDefault();
   scrub.dy = dy;
   const list = $('lyrics');
-  const wrapH = wrapEl.clientHeight, listH = list.offsetHeight;
-  const ty = Math.min(0, Math.max(wrapH - listH, scrub.ty0 + dy));
+  const wrapH = wrapEl.clientHeight;
+  const ty = Math.min(scrub.hi, Math.max(scrub.lo, scrub.ty0 + dy));
   list.style.transform = `translateY(${ty.toFixed(1)}px)`;
   const idx = lineAtListY(wrapH * 0.42 - ty);
   if(idx >= 0 && idx !== scrub.idx){
@@ -1092,6 +1111,15 @@ wrapEl.addEventListener('pointermove', e => {
     markLine(idx);
     showTip(fmt(lines[idx].t) + ' · 松手跳到这里');
   }
+}, {passive:false});
+
+/* 桌面滚轮也能上下翻歌词 */
+wrapEl.addEventListener('wheel', e => {
+  if(recording || !lines.length) return;
+  e.preventDefault();
+  const b = lyricBounds();
+  const ty = Math.min(b.hi, Math.max(b.lo, currentTy() - e.deltaY));
+  $('lyrics').style.transform = `translateY(${ty.toFixed(1)}px)`;
 }, {passive:false});
 
 wrapEl.addEventListener('pointerup', () => {
@@ -1110,16 +1138,18 @@ wrapEl.addEventListener('pointerup', () => {
     }
     setPos(lines[s.idx].t);
     curLine = -1;
-    if(editWork){
-      // 补录时定位完就停住，按红点就从这句开唱
+    if(s.wasPlaying){
+      // 播放中选句 = 跳到这句接着放
+      play();
+      showTip(fmt(pos) + ' · 从这句接着听');
+    }else{
+      // 暂停中滑到哪句就停在哪句，按红点从这句开录
       pause();
       highlight(pos);
-      showTip(fmt(pos) + ' 起唱 · 按红点从这句开始，后面的保留');
-      return;
+      showTip(editWork
+        ? fmt(pos) + ' 起唱 · 按红点从这句开始，后面的保留'
+        : fmt(pos) + ' 起唱 · 按红点从这句开录', !canRecord());
     }
-    if(!playing) play();
-    highlight(pos);
-    showTip(idleTip(), !canRecord());
   }
 });
 
@@ -1492,7 +1522,7 @@ async function showWorks(){
     html = d.legacy
       ? `<div class="empty">这台设备还没有作品<br>
            <button class="btn" style="margin-top:14px" onclick="claimLegacy()">认领升级前的 ${d.legacy} 条录音</button></div>`
-      : `<div class="empty">还没唱过<br>回曲库挑一首开始吧</div>`;
+      : `<div class="empty">还没唱过<br>回草稿箱挑一首开始吧</div>`;
   }
   $('workList').innerHTML = html;
   go('works');
@@ -1963,7 +1993,7 @@ async function saveToLibrary(){
   });
   const d = await r.json();
   if(d.error){ $('aiMsg').textContent = d.error; return; }
-  $('aiMsg').textContent = '已存进「我的曲库」，首页能再打开';
+  $('aiMsg').textContent = '已存进「草稿箱」，首页能再打开';
   loadScripts();
 }
 
@@ -1985,7 +2015,7 @@ async function loadScripts(){
         <span class="k">${esc(c.style)}</span>
         <span class="sc-del" data-id="${esc(c.id)}">✕</span>
       </div>`).join('') + more
-    : `<div class="corpus-ph">还没有存稿。写一篇，点「存进曲库」就会留在这里</div>`;
+    : `<div class="corpus-ph">还没有存稿。写一篇，点「存进草稿箱」就会留在这里</div>`;
 
   $('scriptList').querySelectorAll('.corpus').forEach(el => {
     el.onclick = ev => {
@@ -2015,7 +2045,7 @@ async function openScript(id, item){
 }
 
 async function delScript(id){
-  if(!confirm('从曲库里删掉这篇稿子？（已经做成的曲目不受影响）')) return;
+  if(!confirm('从草稿箱里删掉这篇稿子？（已经做成的曲目不受影响）')) return;
   await fetch('/api/corpus/delete', {method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({id})});
   loadScripts();
