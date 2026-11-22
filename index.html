@@ -432,6 +432,7 @@ summary{font-size:12px;color:var(--dim);cursor:pointer;padding:6px 0}
         <div class="f"><input id="aiModel" placeholder="模型名，如 deepseek-chat"></div>
         <div class="f"><input id="aiKey" type="password" placeholder="API Key"></div>
         <div class="note">Key 只存在你本机浏览器里，生成时由浏览器直接请求 AI 服务，不经过任何服务器。</div>
+        <div class="note" style="margin-top:8px"><b>不填也能用</b>：会先试免费 AI 改写（公共免费服务，同一网络 45 秒 1 次），失败再用免费翻译兜底；质量和稳定性都不如自己填 Key。</div>
         <div class="note" style="margin-top:12px"><b>原唱语音</b>：写词和出声是两回事，DeepSeek 只会写字。填一个硅基流动的 Key 就能把词合成带拍子的原唱（新用户有免费额度）。</div>
         <div class="f"><input id="ttsBase" placeholder="语音 Base URL（默认硅基流动）"></div>
         <div class="f"><input id="ttsModel" placeholder="语音模型（默认 CosyVoice2）"></div>
@@ -605,7 +606,11 @@ const UID = (() => {
 })();
 const _fetch = window.fetch.bind(window);
 window.fetch = (url, opt = {}) => {
-  opt.headers = Object.assign({}, opt.headers, {'X-User': UID});
+  // 只给本站请求打标：外部 API 多带一个自定义头会被强制预检，有些免费接口不支持 OPTIONS
+  const s = typeof url === 'string' ? url : (url && url.url) || '';
+  let sameOrigin = false;
+  try{ sameOrigin = new URL(s, location.href).origin === location.origin; }catch(e){}
+  if(sameOrigin) opt.headers = Object.assign({}, opt.headers, {'X-User': UID});
   return _fetch(url, opt);
 };
 
@@ -2349,7 +2354,7 @@ function updateAiStatus(){
     ? `会走 AI 改写（${$('aiModel').value || '已填 Key'}），中文主题也能写成英文`
     : (serverLLM.default
         ? `自动用服务器共用 Key（${serverLLM.model || '默认模型'}），中文主题也能写成英文`
-        : '没填 Key：只把原文按曲式分行，不翻译。想中→英，在下面「API 设置」填个 Key');
+        : '没填 Key：先用免费 AI 改写（同一网络 45 秒 1 次），不行就免费翻译兜底；想稳定点可以在下面填个 Key');
 }
 
 async function saveServerKey(){
@@ -2462,6 +2467,132 @@ function applyProvider(){
   $('aiModel').value = model;
 }
 
+/* ---------- 免 Key 改写：免费 AI（Pollinations）→ 免费翻译（MyMemory）→ 本地排版 ---------- */
+const FREE_LLM_URL = 'https://text.pollinations.ai/openai';
+const FREE_LLM_WAIT = 'rap_free_llm_until';
+const FREE_TTL_MS = 46000;
+
+function freeWaitMs(){
+  return Math.max(0, Number(localStorage.getItem(FREE_LLM_WAIT) || 0) - Date.now());
+}
+
+async function freeLLM(messages){
+  const wait = freeWaitMs();
+  if(wait > 0) throw new Error('FREE_COOLDOWN:' + wait);
+  const ac = new AbortController();
+  const to = setTimeout(() => ac.abort(), 60000);
+  try{
+    const r = await fetch(FREE_LLM_URL, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({model:'openai', messages, temperature:0.85,
+        private:true, referrer:'shui-rap-language'}),
+      signal: ac.signal
+    });
+    const txt = await r.text();
+    let d = null;
+    try{ d = JSON.parse(txt); }catch(e){}
+    if(!r.ok || (d && d.error)){
+      const msg = (d && d.error && d.error.message) || ('免费 AI 返回 ' + r.status);
+      const m = /retry after (\d+)s/i.exec(msg);
+      if(d && d.error && d.error.code === 'FREE_LIMIT'){
+        const ms = m ? Number(m[1]) * 1000 : FREE_TTL_MS;
+        localStorage.setItem(FREE_LLM_WAIT, String(Date.now() + ms));
+        throw new Error('FREE_COOLDOWN:' + ms);
+      }
+      throw new Error(msg);
+    }
+    const c = d && d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content;
+    if(!c) throw new Error('免费 AI 没有返回内容');
+    localStorage.setItem(FREE_LLM_WAIT, String(Date.now() + FREE_TTL_MS));
+    return c;
+  }finally{ clearTimeout(to); }
+}
+
+function htmlUnescape(s){
+  return String(s || '').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+}
+
+/* MyMemory：免 Key 翻译，匿名 5000 字符/天，单次 q 不能太长，按句切块 */
+async function freeTranslate(text){
+  const src = /[一-鿿]/.test(text) ? 'zh-CN' : 'en-GB';
+  const dst = src === 'zh-CN' ? 'en-GB' : 'zh-CN';
+  const parts = String(text).split(/(?<=[。！？!?；;，,\n])/).map(s => s.trim()).filter(Boolean);
+  const chunks = [];
+  let cur = '';
+  for(const p of parts){
+    if(cur && (cur + p).length > 220){ chunks.push(cur); cur = p; }
+    else cur += (cur && !/[。！？!?；;，,\n]$/.test(cur) ? ' ' : '') + p;
+  }
+  if(cur) chunks.push(cur);
+  const out = [];
+  for(const c of chunks){
+    const u = 'https://api.mymemory.translated.net/get?q=' + encodeURIComponent(c)
+      + '&langpair=' + encodeURIComponent(src + '|' + dst);
+    let d = null;
+    try{ d = await (await fetch(u)).json(); }catch(e){ throw new Error('免费翻译连不上'); }
+    if(d && d.quotaFinished) throw new Error('今天的免费翻译额度用完了');
+    const t = d && d.responseData && d.responseData.translatedText;
+    if(!t) throw new Error((d && d.responseDetails) || '免费翻译没有返回内容');
+    out.push(htmlUnescape(t));
+  }
+  return out.join('\n');
+}
+
+function aiFit(text, tplId){
+  return fetch('/api/fit', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({text, template: tplId})
+  }).then(r => r.json());
+}
+
+async function genTextFree(topic, tpl, lang, messages){
+  const zh = lang === 'zh';
+  const hasZh = /[一-鿿]/.test(topic);
+  const needTr = (lang === 'zh') !== hasZh;   // 目标和原文语言不一致才需要翻译
+  $('aiGo').disabled = true; $('aiGo').textContent = '免费改写中…'; $('aiMsg').textContent = '';
+
+  try{
+    let wait = 0, why = '';
+    try{
+      const out = cleanLines(await freeLLM(messages));
+      if(!out) throw new Error('免费 AI 没有返回内容');
+      $('aiResult').value = out;
+      $('aiOut').hidden = false;
+      $('aiMsg').textContent = '免费 AI 已写好（不用 Key；同一网络 45 秒只能改 1 次，不满意过一会儿再点）';
+      return;
+    }catch(e){
+      const m = String(e.message || e);
+      if(m.startsWith('FREE_COOLDOWN:')) wait = Number(m.split(':')[1]) || FREE_TTL_MS;
+      why = wait ? `免费 AI 冷却中（还剩 ${Math.ceil(wait / 1000)} 秒）` : '免费 AI 连不上';
+    }
+
+    if(needTr){
+      try{
+        const tr = await freeTranslate(topic);
+        const d = await aiFit(tr, tpl.id);
+        if(d.error) throw new Error(d.error);
+        $('aiResult').value = d.text;
+        $('aiOut').hidden = false;
+        $('aiMsg').textContent = `${why}，先用免费翻译翻成了${zh ? '中文' : '英文'}并排好。`
+          + '想更顺口，等冷却结束再点「生成」。';
+        return;
+      }catch(e){ why += '，免费翻译也没成功'; }
+    }
+
+    const d = await aiFit(topic, tpl.id);
+    if(d.error){ $('aiMsg').textContent = d.error; return; }
+    $('aiResult').value = d.text;
+    $('aiOut').hidden = false;
+    const drop = (d.info && d.info.dropped) || 0;
+    $('aiMsg').textContent = `${why}；已按曲式排成 ${d.stats.lines} 行 · ${Math.round(d.stats.duration)} 秒`
+      + (drop ? `（有 ${drop} 句放不下，删短一点或换更长的曲式）` : '')
+      + (needTr ? '。要翻译成另一种语言，等一会儿再点，或填个 Key。' : '。');
+  }finally{
+    $('aiGo').disabled = false; $('aiGo').textContent = '生成';
+  }
+}
+
 async function genText(){
   const topic = $('aiTopic').value.trim();
   if(!topic){ $('aiMsg').textContent = '先写点东西'; $('aiTopic').focus(); return; }
@@ -2471,38 +2602,6 @@ async function genText(){
   if(!tpl){ $('aiMsg').textContent = '曲式没加载出来，刷新一下页面'; return; }
   const base = $('aiBase').value.trim(), model = $('aiModel').value.trim(), key = $('aiKey').value.trim();
 
-  // 自己和服务器都没有 Key，才退回本地排版：只要有文字就能出结果
-  if(!key && !serverLLM.default){
-    $('aiGo').disabled = true; $('aiGo').textContent = '排版中…'; $('aiMsg').textContent = '';
-    try{
-      const r = await fetch('/api/fit', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({text: topic, template: tpl.id})
-      });
-      const d = await r.json();
-      if(d.error){ $('aiMsg').textContent = d.error; return; }
-      $('aiResult').value = d.text;
-      $('aiOut').hidden = false;
-      const drop = (d.info && d.info.dropped) || 0;
-      const hasZh = /[一-鿿]/.test(topic);
-      // 没 Key 时只是把原文按曲式排开，不会翻译：中文进、中文出
-      const langWarn = lang === 'en' && hasZh
-        ? '注意：你写的是中文，没填 Key 我只能排成中文歌词，不会翻译成英文。'
-          + '在「API 设置」填个 DeepSeek Key 就能直接改写成英文。'
-        : '';
-      $('aiMsg').textContent = langWarn ||
-        (`已排成 ${d.stats.lines} 行 · ${Math.round(d.stats.duration)} 秒，可以直接做成曲目`
-         + (drop ? `（有 ${drop} 句放不下，删短一点或换更长的曲式）` : '')
-         + '（想让它改写得更顺口，可在「API 设置」填个免费 Key）');
-    }catch(e){
-      $('aiMsg').textContent = /fetch|network|load/i.test(e.message)
-        ? '连不上本地服务（可能刚重启），再点一次「生成」就好'
-        : '排版失败：' + e.message;
-    }finally{
-      $('aiGo').disabled = false; $('aiGo').textContent = '生成';
-    }
-    return;
-  }
   const zh = lang === 'zh';
   const [lo, hi] = zh ? [tpl.words[0] * 2, tpl.words[1] * 2] : tpl.words;
   const unit = zh ? '字' : '词';
@@ -2510,23 +2609,30 @@ async function genText(){
   const spec = `曲式：${tpl.name}，${tpl.bpm} BPM，共 ${tplLines(tpl)} 行，约 ${tplSecs(tpl)} 秒。\n`
     + `结构（严格按这个行数输出，每段前面写方括号标记）：\n${shape}\n`
     + `每行 ${lo}–${hi} ${unit}，不要超。`;
+  const langName = zh ? '中文' : '英文';
+  const messages = aiMode === 'polish'
+    ? [
+        {role:'system', content:'你是口语润色教练。保留用户原本想表达的意思和语言，纠正语法与用词错误，改成自然地道的口语。只输出 [Verse]、[Hook] 这样的段落标记和正文，不要编号、不要空行、不要标题、不要任何解释。'},
+        {role:'user', content:`原文：\n${topic}\n\n要求：\n- 语言保持${langName}，不要翻译成别的语言\n- 保留原意，只做润色和纠错\n- ${spec}\n- ${POLISH_RULES[lang][aiStyle]}`}
+      ]
+    : [
+        {role:'system', content:'你是歌词作者。只输出 [Verse]、[Hook] 这样的段落标记和正文歌词，不要编号、不要空行、不要标题、不要任何解释。'},
+        {role:'user', content:`主题：${topic}\n输出语言：${langName}。`
+          + (zh ? '主题是英文的话，先理解意思，再用中文写。'
+                : '主题是中文的话，先理解意思，再写成英文，正文里不要出现中文字。')
+          + `\n${spec}\n${STYLE_RULES[lang][aiStyle]}`}
+      ];
+
+  // 自己和服务器都没有 Key：走免费 AI / 免费翻译 / 本地排版
+  if(!key && !serverLLM.default){
+    await genTextFree(topic, tpl, lang, messages);
+    return;
+  }
+
   saveCfg();
   $('aiGo').disabled = true; $('aiGo').textContent = '生成中…'; $('aiMsg').textContent = '';
 
   try{
-    const langName = zh ? '中文' : '英文';
-    const messages = aiMode === 'polish'
-      ? [
-          {role:'system', content:'你是口语润色教练。保留用户原本想表达的意思和语言，纠正语法与用词错误，改成自然地道的口语。只输出 [Verse]、[Hook] 这样的段落标记和正文，不要编号、不要空行、不要标题、不要任何解释。'},
-          {role:'user', content:`原文：\n${topic}\n\n要求：\n- 语言保持${langName}，不要翻译成别的语言\n- 保留原意，只做润色和纠错\n- ${spec}\n- ${POLISH_RULES[lang][aiStyle]}`}
-        ]
-      : [
-          {role:'system', content:'你是歌词作者。只输出 [Verse]、[Hook] 这样的段落标记和正文歌词，不要编号、不要空行、不要标题、不要任何解释。'},
-          {role:'user', content:`主题：${topic}\n输出语言：${langName}。`
-            + (zh ? '主题是英文的话，先理解意思，再用中文写。'
-                  : '主题是中文的话，先理解意思，再写成英文，正文里不要出现中文字。')
-            + `\n${spec}\n${STYLE_RULES[lang][aiStyle]}`}
-        ];
     const r = await fetch('/api/llm', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({base_url: base, api_key: key, model, messages})
