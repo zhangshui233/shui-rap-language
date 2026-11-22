@@ -528,6 +528,7 @@ summary{font-size:12px;color:var(--dim);cursor:pointer;padding:6px 0}
         <button class="btn" onclick="closeVoxKey()">取消</button>
         <button class="btn primary" onclick="saveVoxKey()">保存并生成</button>
       </div>
+      <button class="btn" id="vkFree" hidden style="width:100%;margin-top:8px" onclick="useFreeTts()">免 Key：用本机语音生成</button>
     </div>
   </div>
 
@@ -864,7 +865,10 @@ function ttsCfg(){
 
 async function ttsBlob(text, speed){
   const c = ttsCfg();
-  if(!c.key) throw new Error('没有原唱 Key：在 API 设置里填一个硅基流动的 Key');
+  if(!c.key){
+    if(freeTtsOn) return kittenTtsBlob(text, speed);
+    throw new Error('没有原唱 Key：可以点「免 Key 本地语音」，或在 API 设置里填一个 Key');
+  }
   let r;
   try{
     r = await fetch(c.base.replace(/\/+$/, '') + '/audio/speech', {
@@ -885,6 +889,89 @@ async function ttsBlob(text, speed){
     throw new Error(`语音服务返回 ${r.status}${m ? '：' + m : ''}`);
   }
   return await r.blob();
+}
+
+/* ---------------- 免 Key 本地语音（Kitten TTS / WebGPU） ---------------- */
+const KITTEN = {
+  model: 'assets/tts/kitten/kitten_tts_nano_v0_8.onnx',
+  voices: 'assets/tts/kitten/voices.npz',
+  voice: 'Jasper',
+  cache: 'rap-tts-v1',
+};
+let kittenEngineP = null, kittenLoaded = false, kittenProgress = null;
+let kittenQ = Promise.resolve(), freeTtsOn = false;
+
+function kittenSupported(){ return !!navigator.gpu; }
+function setTtsProgress(fn){ kittenProgress = fn; }
+
+async function cachedBlobUrl(url){
+  const abs = new URL(url, location.href).href;
+  let blob = null;
+  try{
+    const c = await caches.open(KITTEN.cache);
+    const hit = await c.match(abs);
+    if(hit){
+      blob = await hit.blob();
+    }else{
+      const res = await fetch(abs);
+      if(!res.ok) throw new Error('语音包下载失败 ' + res.status);
+      const total = Number(res.headers.get('Content-Length') || 0);
+      const reader = res.body.getReader();
+      const chunks = [];
+      let loaded = 0;
+      for(;;){
+        const {done, value} = await reader.read();
+        if(done) break;
+        chunks.push(value);
+        loaded += value.length;
+        if(kittenProgress) kittenProgress({loaded, total});
+      }
+      blob = new Blob(chunks, {type:'application/octet-stream'});
+      await c.put(abs, new Response(blob));
+    }
+  }catch(e){
+    const res = await fetch(abs);
+    if(!res.ok) throw new Error('语音包下载失败 ' + res.status);
+    blob = await res.blob();
+  }
+  return URL.createObjectURL(blob);
+}
+
+async function kittenEngine(){
+  if(!navigator.gpu) throw new Error('这个浏览器不支持 WebGPU，免 Key 语音用不了，请填一个语音 Key');
+  if(!kittenEngineP){
+    kittenEngineP = (async () => {
+      const m = await import('./vendor/kitten/index.js');
+      const modelUrl = await cachedBlobUrl(KITTEN.model);
+      const voicesUrl = await cachedBlobUrl(KITTEN.voices);
+      try{
+        const e = new m.KittenTTSEngine();
+        await e.init();
+        await e.loadModel(modelUrl, voicesUrl);
+        kittenLoaded = true;
+        return {e, m};
+      }finally{
+        URL.revokeObjectURL(modelUrl);
+        URL.revokeObjectURL(voicesUrl);
+      }
+    })().catch(e => { kittenEngineP = null; throw e; });
+  }
+  return kittenEngineP;
+}
+
+function kittenTtsBlob(text, speed){
+  const run = kittenQ.then(async () => {
+    if(/[㐀-鿿]/.test(text)){
+      throw new Error('本地语音包只支持英文；中文歌词请填一个语音 Key');
+    }
+    const {e, m} = await kittenEngine();
+    const {ids} = await m.textToInputIds(text);
+    const sp = Math.max(0.7, Math.min(1.6, speed || 1));
+    const {waveform} = await e.generate(ids, KITTEN.voice, sp, text.length);
+    return m.float32ToWav(waveform, 24000);
+  });
+  kittenQ = run.catch(() => {});
+  return run;
 }
 
 function encodeWavBuffer(buf){
@@ -1000,12 +1087,22 @@ function askVoxKey(cb, msg){
   $('vkModel').value = c.model || '';
   $('vkVoice').value = c.voice || '';
   $('vkMsg').textContent = msg || '';
+  const free = $('vkFree');
+  free.hidden = !kittenSupported();
+  free.textContent = kittenLoaded ? '免 Key：本机语音生成（英文，已就绪）'
+                                  : '免 Key：本机语音生成（英文，首次下载约 24MB）';
   $('voxKey').classList.add('on');
   setTimeout(() => $('vkKey').focus(), 60);
 }
 function closeVoxKey(){
   $('voxKey').classList.remove('on');
   voxKeyCb = null;
+}
+function useFreeTts(){
+  const cb = voxKeyCb;
+  closeVoxKey();
+  freeTtsOn = true;
+  if(cb) cb(); else genVocalForCurrent();
 }
 function saveVoxKey(){
   const key = $('vkKey').value.trim();
@@ -1032,14 +1129,21 @@ async function genVocalForCurrent(){
   const bar = $('voxBar'), lab = bar.querySelector('span'), btn = $('voxGo');
   bar.hidden = false;
   const c = ttsCfg();
-  if(!c.key){
-    lab.textContent = '还差一个语音 Key，填完就能合成整首原唱';
-    askVoxKey(() => genVocalForCurrent(), '硅基流动的 Key 填这里；填完点「保存并生成」。');
+  if(!c.key && !freeTtsOn){
+    lab.textContent = '还差一个语音 Key，或者用本机语音免 Key 生成';
+    askVoxKey(() => genVocalForCurrent(), kittenSupported()
+      ? '填 Key 用云端音色，质量更好；不想填就点下面的「免 Key：用本机语音生成」。'
+      : '硅基流动的 Key 填这里；填完点「保存并生成」。');
     return;
   }
   btn.disabled = true;
   try{
     lab.textContent = '正在读取歌词…';
+    setTtsProgress(p => {
+      lab.textContent = p.total
+        ? `首次下载语音包 ${(p.loaded/1048576).toFixed(1)} / ${(p.total/1048576).toFixed(1)} MB`
+        : '首次加载语音包…';
+    });
     const lrc = await (await fetch('/lrc/' + encodeURIComponent(track.id) + '.lrc')).text();
     const built = await buildTrackVocal(track, parseLRC(lrc), (n, t, f) => {
       lab.textContent = `正在生成原唱 ${n}/${t}${f ? `（${f} 句失败）` : ''}`;
@@ -1057,6 +1161,7 @@ async function genVocalForCurrent(){
       askVoxKey(() => genVocalForCurrent(), 'Key 好像没通过：' + msg);
     }
   }finally{
+    setTtsProgress(null);
     btn.disabled = false;
   }
 }
@@ -2458,9 +2563,18 @@ async function createTrack(){
     if(d.error){ $('aiMsg').textContent = d.error; return; }
     await ensureDraftForTrack(d.track);
 
+    if(!ttsCfg().key && !freeTtsOn && kittenSupported() && !kittenLoaded){
+      freeTtsOn = confirm('不用 Key 也能生成原唱：第一次要下载约 24MB 的英文语音包（只下一次）。现在下载并生成？\n点「取消」就只存曲目，之后在练习页再生成。');
+    }
+
     let gotVocal = false, why = '';
     try{
       $('aiMsg').textContent = '正在生成原唱… 0/' + Math.max(1, text.split('\n').length);
+      setTtsProgress(p => {
+        $('aiMsg').textContent = p.total
+          ? `首次下载语音包 ${(p.loaded/1048576).toFixed(1)} / ${(p.total/1048576).toFixed(1)} MB`
+          : '正在加载语音包…';
+      });
       const lrc = await (await fetch('/lrc/' + encodeURIComponent(d.track.id) + '.lrc')).text();
       const built = await buildTrackVocal(d.track, parseLRC(lrc), (n, total, f) => {
         $('aiMsg').textContent = `正在生成原唱… ${n}/${total}` + (f ? `（${f} 句失败）` : '');
@@ -2469,6 +2583,8 @@ async function createTrack(){
       gotVocal = true;
     }catch(e){
       why = e.message;
+    }finally{
+      setTtsProgress(null);
     }
 
     await loadLibrary();
