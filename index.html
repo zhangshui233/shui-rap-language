@@ -177,6 +177,9 @@ body{
   border-radius:22px 22px 0 0;padding:20px 18px calc(24px + env(safe-area-inset-bottom))}
 .sheet-h{display:flex;justify-content:space-between;font-size:16px;font-weight:700;margin-bottom:6px}
 .sheet-h .x{color:var(--dim);cursor:pointer;font-weight:400;padding:0 4px}
+.sheet-h .prev{font-weight:400;font-size:13px;color:var(--dim);border:1px solid var(--line);
+  border-radius:14px;padding:2px 10px;cursor:pointer;user-select:none}
+.sheet-h .prev.on{color:#fff;border-color:var(--accent)}
 .sheet label{display:block;font-size:12px;color:var(--dim);margin:15px 0 7px}
 .seg{display:flex;background:#0f0f16;border:1px solid var(--line);border-radius:12px;padding:3px;margin-top:14px}
 .seg-i{flex:1;text-align:center;font-size:13px;padding:9px 0;border-radius:9px;color:var(--dim);cursor:pointer}
@@ -384,7 +387,12 @@ summary{font-size:12px;color:var(--dim);cursor:pointer;padding:6px 0}
   <!-- AI 写词 -->
   <div id="aiPanel">
     <div class="sheet">
-      <div class="sheet-h"><span>用 AI 写新稿</span><span class="x" onclick="closeAI()">✕</span></div>
+      <div class="sheet-h"><span>用 AI 写新稿</span>
+        <span style="display:flex;align-items:center;gap:12px">
+          <span class="prev" id="aiPrevBtn" onclick="toggleAiPreview()" title="伴奏试听">♪ 伴奏</span>
+          <span class="x" onclick="closeAI()">✕</span>
+        </span>
+      </div>
 
       <div class="seg" id="modeSeg">
         <div class="seg-i on" data-m="gen" onclick="setMode('gen')">从主题生成</div>
@@ -2152,6 +2160,7 @@ function stopAll(){
   $('pauseBtn').style.display = 'none';
   $('pauseBtn').textContent = '暂停';
   stopGuide(); clearEdit();
+  aiPreviewStop();
   if(instEl) instEl.pause();
   if(vocalEl) vocalEl.pause();
   playing = false; $('playBtn').textContent = '▶';
@@ -2243,6 +2252,7 @@ function pickTpl(){
   $('tplNote').textContent =
     `${tplLines(t)} 行 · 每行 ${lo}–${hi} ${unit} / ${tplPerLine(t)} 秒 · `
     + `${t.sections.map(s => s.name + s.lines).join(' / ')} · 约 ${tplSecs(t)} 秒`;
+  if($('aiPanel').classList.contains('on')) aiPreview();
 }
 
 function setMode(m){
@@ -2312,6 +2322,7 @@ async function openAI(){
   $('aiPanel').classList.add('on');
   await loadTemplates();
   fillTplSelect();
+  aiPreview();
 }
 
 /* 服务器上如果配了共用 Key，这边就不用填 */
@@ -2361,11 +2372,47 @@ async function clearServerKey(){
   await refreshServerLLM();
   updateAiStatus();
 }
-function closeAI(){ $('aiPanel').classList.remove('on'); }
+/* ---------- 写词页伴奏预览：跟着当前曲式走 ---------- */
+let aiPrev = null, aiPrevSrc = '', aiPrevMuted = false;
+const AI_PREV_VOL = 0.32;
+
+function aiPreviewSync(){
+  const b = $('aiPrevBtn');
+  if(b) b.classList.toggle('on', !!aiPrev && !aiPrev.paused);
+}
+function aiPreview(id){
+  const use = id || aiTplId;
+  const src = use ? `assets/snd/library/${use}.mp3` : '';
+  if(!src) return;
+  if(src !== aiPrevSrc){
+    if(aiPrev){ aiPrev.pause(); aiPrev = null; }
+    aiPrev = new Audio(src);
+    aiPrev.loop = true;
+    aiPrev.volume = AI_PREV_VOL;
+    aiPrevSrc = src;
+  }
+  if(aiPrevMuted){ aiPreviewSync(); return; }
+  aiPrev.play().catch(() => {});
+  aiPreviewSync();
+}
+function aiPreviewStop(){
+  if(aiPrev) aiPrev.pause();
+  aiPreviewSync();
+}
+function toggleAiPreview(){
+  aiPrevMuted = !aiPrevMuted;
+  if(aiPrevMuted) aiPreviewStop(); else aiPreview();
+}
+
+function closeAI(){
+  $('aiPanel').classList.remove('on');
+  aiPreviewStop();
+}
 function pickStyle(k){
   aiStyle = k;
   document.querySelectorAll('#styleChips .chip').forEach(c => c.classList.toggle('on', c.dataset.k === k));
   fillTplSelect();
+  aiPreview();
 }
 
 const CFG_KEY = 'llm_cfg';
