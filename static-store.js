@@ -296,6 +296,11 @@
       return json({ work: w, vocal, duration: w.duration });
     }
 
+    if (p === '/api/blob' && method === 'GET') {
+      const b = await getBlob(u.searchParams.get('k') || '');
+      return b ? json({ url: URL.createObjectURL(b) }) : json({ error: '没有这个文件' }, 404);
+    }
+
     if (method !== 'POST') return json({ error: 'not found' }, 404);
 
     /* POST */
@@ -357,6 +362,21 @@
       list.unshift(track);
       write(LS.tracks, list);
       return json({ ok: true, track, used: f.used, dropped: f.dropped });
+    }
+
+    if (p === '/api/track/vocal') {
+      const id = header(opt, 'X-Track-Id');
+      const body = opt.body;
+      const blob = body && body.get && body.get('vocal');
+      if (!id || !blob || !blob.size) return json({ error: '没有原唱音轨' }, 400);
+      await putBlob('vocal:' + id, blob);
+      const list = read(LS.tracks, []);
+      const t = list.find(x => x.id === id);
+      if (t) {
+        t.vocal = 'vocal:' + id;
+        write(LS.tracks, list);
+      }
+      return json({ ok: true, vocal: 'vocal:' + id, url: URL.createObjectURL(blob) });
     }
 
     if (p === '/api/track/update') {

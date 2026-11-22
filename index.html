@@ -146,6 +146,8 @@ body{
 .work .h{display:flex;justify-content:space-between;font-size:13px;margin-bottom:9px}
 .work .h .d{color:var(--dim);font-size:11px}
 .work audio{width:100%;height:34px}
+.work .acts{display:flex;gap:8px;margin-top:9px}
+.work .acts .btn{flex:1;padding:7px 0;font-size:12px;text-align:center;text-decoration:none}
 .work .del{font-size:11px;color:#ff6b85;cursor:pointer;padding:4px 8px}
 
 /* ---------- AI 写词 ---------- */
@@ -235,6 +237,26 @@ summary{font-size:12px;color:var(--dim);cursor:pointer;padding:6px 0}
   background:#26263a;color:#f0f0f8;font-size:13px;padding:10px 16px;border-radius:20px;z-index:70;
   opacity:0;pointer-events:none;transition:.18s;max-width:86%;text-align:center}
 #toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+#done{position:fixed;inset:0;display:none;place-items:center;z-index:80;padding:24px;
+  background:rgba(4,4,8,.72);backdrop-filter:blur(6px)}
+#done.on{display:grid}
+#done .done-card{width:100%;max-width:310px;background:#16161f;border:1px solid #2e2e44;
+  border-radius:20px;padding:24px 20px;text-align:center}
+#done .done-t{font-size:17px;font-weight:700;margin-bottom:8px}
+#done .done-s{font-size:13px;color:var(--dim);line-height:1.65;margin-bottom:18px;word-break:break-word}
+#voxBar{display:flex;align-items:center;gap:10px;margin:0 16px 6px;padding:8px 10px;
+  background:#131c2a;border:1px solid #24406b;border-radius:10px;font-size:12.5px;color:#a9c8ff}
+#voxBar[hidden]{display:none}
+#voxBar span{flex:1}
+#coach{position:fixed;inset:0;display:flex;align-items:flex-end;justify-content:center;z-index:75;padding:24px 16px calc(28px + env(safe-area-inset-bottom));pointer-events:none}
+#coach .coach-card{pointer-events:auto}
+#coach[hidden]{display:none}
+#coach .coach-card{width:100%;max-width:330px;background:#1a1a26;border:1px solid #3a3a56;
+  border-radius:18px;padding:18px 18px 16px;box-shadow:0 18px 44px rgba(0,0,0,.55)}
+#coach .coach-t{font-size:16px;font-weight:700;margin-bottom:6px}
+#coach .coach-s{font-size:13px;color:var(--dim);line-height:1.65;margin-bottom:14px}
+#coach .coach-row{display:flex;gap:8px}
+#coach .coach-row .btn{flex:1}
 </style>
 </head>
 <body>
@@ -269,7 +291,7 @@ summary{font-size:12px;color:var(--dim);cursor:pointer;padding:6px 0}
         <div class="ai-ic">👋</div>
         <div style="min-width:0">
           <div class="ai-t">怎么玩</div>
-          <div class="ai-s">30 秒上手，听一段原唱就知道节奏</div>
+          <div class="ai-s">一句话做成歌，或者直接进去唱 30 秒</div>
         </div>
         <div style="margin-left:auto;color:var(--dim);font-size:19px">›</div>
       </div>
@@ -291,6 +313,10 @@ summary{font-size:12px;color:var(--dim);cursor:pointer;padding:6px 0}
     <div id="editBar" hidden>
       <span id="editLabel">补录模式</span>
       <button class="btn" style="padding:4px 10px;font-size:12px" onclick="exitEdit()">退出补录</button>
+    </div>
+    <div id="voxBar" hidden>
+      <span>这首还没有原唱</span>
+      <button class="btn" style="padding:4px 10px;font-size:12px" onclick="genVocalForCurrent()">生成原唱</button>
     </div>
 
     <div id="lyricsWrap"><div id="lyrics"></div></div>
@@ -371,6 +397,12 @@ summary{font-size:12px;color:var(--dim);cursor:pointer;padding:6px 0}
         <div class="f"><input id="aiModel" placeholder="模型名，如 deepseek-chat"></div>
         <div class="f"><input id="aiKey" type="password" placeholder="API Key"></div>
         <div class="note">Key 只存在你本机浏览器里，生成时由浏览器直接请求 AI 服务，不经过任何服务器。</div>
+        <div class="note" style="margin-top:12px"><b>原唱语音</b>：写词和出声是两回事，DeepSeek 只会写字。填一个硅基流动的 Key 就能把词合成带拍子的原唱（新用户有免费额度）。</div>
+        <div class="f"><input id="ttsBase" placeholder="语音 Base URL（默认硅基流动）"></div>
+        <div class="f"><input id="ttsModel" placeholder="语音模型（默认 CosyVoice2）"></div>
+        <div class="f"><input id="ttsVoice" placeholder="音色（默认 benjamin 男声）"></div>
+        <div class="f"><input id="ttsKey" type="password" placeholder="语音 API Key（可与上面同一个）"></div>
+        <div class="row"><button class="btn" onclick="testVoice()">试听一句原唱</button></div>
         <div class="f" id="llmSharedRow" hidden>
           <div class="note" id="llmSharedState" style="margin:0 0 8px"></div>
           <div class="row">
@@ -386,14 +418,15 @@ summary{font-size:12px;color:var(--dim);cursor:pointer;padding:6px 0}
       <div id="aiOut" hidden>
         <label>结果（可以直接改）</label>
         <textarea id="aiResult"></textarea>
+        <div class="f" style="margin-top:10px"><input id="aiTitle" maxlength="20" placeholder="曲目名字（留空就用第一句）"></div>
         <div class="row">
-          <button class="btn" onclick="fitToTpl()">套进曲式</button>
-          <button class="btn" onclick="saveToLibrary()">存进草稿箱</button>
+          <button class="btn" onclick="saveDraft()">存入新草稿</button>
           <button class="btn" onclick="copyResult()">复制</button>
         </div>
         <div class="row" style="margin-top:10px">
-          <button class="btn primary" onclick="createTrack()">做成曲目</button>
+          <button class="btn primary" onclick="createTrack()">生成新曲</button>
         </div>
+        <div class="note">存入新草稿 = 只留文字；生成新曲 = 排进拍子、合成原唱，放进曲库。</div>
       </div>
     </div>
   </div>
@@ -440,6 +473,27 @@ summary{font-size:12px;color:var(--dim);cursor:pointer;padding:6px 0}
 
   <div id="toast"></div>
 
+  <!-- 保存完成提示 -->
+  <div id="done">
+    <div class="done-card">
+      <div class="done-t" id="doneT"></div>
+      <div class="done-s" id="doneS"></div>
+      <button class="btn primary" style="width:100%" onclick="doneOk()">好</button>
+    </div>
+  </div>
+
+  <!-- 首次练习提示 -->
+  <div id="coach" hidden>
+    <div class="coach-card">
+      <div class="coach-t" id="coachT"></div>
+      <div class="coach-s" id="coachS"></div>
+      <div class="coach-row">
+        <button class="btn" onclick="coachEnd()">跳过</button>
+        <button class="btn primary" id="coachNext" onclick="coachNext()">下一步</button>
+      </div>
+    </div>
+  </div>
+
   <!-- 新手引导 -->
   <div id="guide">
     <div class="g-sheet">
@@ -458,8 +512,9 @@ summary{font-size:12px;color:var(--dim);cursor:pointer;padding:6px 0}
         <li><span><b>作品和草稿存在这台设备的浏览器里</b>，不联网也能听，换设备或清缓存会看不到。</span></li>
       </ol>
       <div class="g-demo">
-        <button class="btn" id="gPlay" onclick="toggleGuideClip()">▶ 听 30 秒原唱</button>
-        <div class="n">截自《Part One》，先听听一句话落在几拍里</div>
+        <button class="btn primary" onclick="startGuidedDemo()">用一句话做成歌</button>
+        <div class="n">从「生活就像海洋…」开始，走一遍写词 → 选节奏 → 唱 → 发布</div>
+        <button class="btn" id="gPlay" onclick="startDemo30()" style="margin-top:8px">只想先唱 30 秒</button>
       </div>
       <button class="btn primary" onclick="closeGuide()">知道了，开始</button>
     </div>
@@ -608,15 +663,18 @@ async function openTrack(id, workId){
 
   $('pTitle').textContent = track.title;
   $('pArtist').textContent = track.artist + (track.bpm ? ` · ${track.bpm} BPM` : '');
-  originalOn = !!track.vocal;
-  const canGuide = !track.vocal && !!track.generated && ('speechSynthesis' in window);
-  guideOn = canGuide;            // 生成曲默认开着跟读，等于给它一条「原唱」
-  $('origBtn').style.display = (track.vocal || canGuide) ? '' : 'none';
-  $('origLabel').textContent = track.vocal ? '原唱' : '跟读';
-  $('origBtn').classList.toggle('on', track.vocal ? originalOn : guideOn);
 
   instEl = new Audio(mediaUrl(track, track.instrumental));
-  vocalEl = track.vocal ? new Audio(mediaUrl(track, track.vocal)) : null;
+  const vocalUrl = await resolveTrackVocal(track);
+  vocalEl = vocalUrl ? new Audio(vocalUrl) : null;
+
+  originalOn = !!vocalEl;
+  const canGuide = !vocalEl && !!track.generated && ('speechSynthesis' in window);
+  guideOn = canGuide;            // 生成曲没有音频原唱时，用浏览器朗读兜底
+  $('origBtn').style.display = (vocalEl || canGuide) ? '' : 'none';
+  $('origLabel').textContent = vocalEl ? '原唱' : '跟读';
+  $('origBtn').classList.toggle('on', vocalEl ? originalOn : guideOn);
+  $('voxBar').hidden = !(track.generated && !vocalEl);
   instEl.preload = 'auto';
   instEl.volume = 1;
   if(vocalEl){ vocalEl.preload = 'auto'; vocalEl.volume = 1; }
@@ -659,6 +717,197 @@ async function openTrack(id, workId){
   else showTip(guideOn
       ? '点播放听跟读 · 上下滑选句 · 按红点从这句开录'
       : '上下滑选句 · 点播放听伴奏 · 按红点从这句开录', !canRecord());
+}
+
+/* ---------------- 原唱生成（TTS + 对齐到拍子） ---------------- */
+const TTS_DEFAULT = {
+  base: 'https://api.siliconflow.cn/v1',
+  model: 'FunAudioLLM/CosyVoice2-0.5B',
+  voice: 'FunAudioLLM/CosyVoice2-0.5B:benjamin',
+};
+
+function ttsCfg(){
+  let c = {};
+  try{ c = JSON.parse(localStorage.getItem(CFG_KEY) || '{}'); }catch(e){}
+  const pick = (id, key) => {
+    const el = document.getElementById(id);
+    return (el && el.value.trim()) || c[key] || '';
+  };
+  const aiBaseEl = document.getElementById('aiBase'), aiKeyEl = document.getElementById('aiKey');
+  const aiBase = norm((aiBaseEl && aiBaseEl.value) || c.base || '');
+  const aiKey = ((aiKeyEl && aiKeyEl.value) || c.key || '').trim();
+  const reuse = /siliconflow|api\.openai\.com/i.test(aiBase);
+  const base = norm(pick('ttsBase', 'ttsBase')) || (reuse ? aiBase : TTS_DEFAULT.base);
+  const isSF = /siliconflow/i.test(base);
+  return {
+    base,
+    key: pick('ttsKey', 'ttsKey') || (reuse ? aiKey : ''),
+    model: pick('ttsModel', 'ttsModel') || (isSF ? TTS_DEFAULT.model : 'gpt-4o-mini-tts'),
+    voice: pick('ttsVoice', 'ttsVoice') || (isSF ? TTS_DEFAULT.voice : 'onyx'),
+  };
+}
+
+async function ttsBlob(text, speed){
+  const c = ttsCfg();
+  if(!c.key) throw new Error('没有原唱 Key：在 API 设置里填一个硅基流动的 Key');
+  let r;
+  try{
+    r = await fetch(c.base.replace(/\/+$/, '') + '/audio/speech', {
+      method:'POST',
+      headers:{'Content-Type':'application/json', Authorization:'Bearer ' + c.key},
+      body: JSON.stringify({
+        model: c.model, input: text, voice: c.voice,
+        speed: Math.max(0.25, Math.min(4, +speed.toFixed(2))),
+        response_format: 'mp3',
+      }),
+    });
+  }catch(e){
+    throw new Error('连不上语音服务（网络或跨域被拦）');
+  }
+  if(!r.ok){
+    let m = '';
+    try{ const d = await r.json(); m = (d.error && d.error.message) || d.message || ''; }catch(e){}
+    throw new Error(`语音服务返回 ${r.status}${m ? '：' + m : ''}`);
+  }
+  return await r.blob();
+}
+
+function encodeWavBuffer(buf){
+  const ch = buf.numberOfChannels, sr = buf.sampleRate, n = buf.length;
+  const ab = new ArrayBuffer(44 + n * ch * 2), v = new DataView(ab);
+  const put = (o, s) => { for(let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  put(0,'RIFF'); v.setUint32(4, 36 + n * ch * 2, true); put(8,'WAVE');
+  put(12,'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true);
+  v.setUint16(22, ch, true); v.setUint32(24, sr, true); v.setUint32(28, sr * ch * 2, true);
+  v.setUint16(32, ch * 2, true); v.setUint16(34, 16, true);
+  put(36,'data'); v.setUint32(40, n * ch * 2, true);
+  const chans = [];
+  for(let c = 0; c < ch; c++) chans.push(buf.getChannelData(c));
+  let o = 44;
+  for(let i = 0; i < n; i++){
+    for(let c = 0; c < ch; c++){
+      const x = Math.max(-1, Math.min(1, chans[c][i]));
+      v.setInt16(o, x < 0 ? x * 0x8000 : x * 0x7fff, true);
+      o += 2;
+    }
+  }
+  return new Blob([ab], {type:'audio/wav'});
+}
+
+/* 每句单独合成，按 LRC 时间对齐，再和伴奏混成「原唱」整轨 */
+async function buildTrackVocal(track, lrcLines, onStep){
+  if(!lrcLines.length) throw new Error('没有歌词');
+  const total = Math.max(1, Math.min(track.duration || 0, 900));
+  const ac = new (window.AudioContext || window.webkitAudioContext)();
+  try{
+    const sr = ac.sampleRate;
+    const vocal = ac.createBuffer(1, Math.ceil(total * sr), sr);
+    const vd = vocal.getChannelData(0);
+    const slots = lrcLines.map((l, i) => {
+      const nextT = lrcLines[i + 1] ? lrcLines[i + 1].t : total;
+      return Math.max(0.8, Math.min(nextT - l.t, total - l.t, 15));
+    });
+
+    const bufs = new Array(lrcLines.length);
+    let cursor = 0, done = 0, failed = 0;
+    const worker = async () => {
+      while(cursor < lrcLines.length){
+        const i = cursor++;
+        const words = lrcLines[i].s.split(/\s+/).filter(Boolean).length;
+        const slot = slots[i];
+        // 一句正好铺满自己的时值：词多就快、词少就慢，接近 rap 的密读
+        const speed = Math.max(0.85, Math.min(1.6, (words * 0.36) / Math.max(0.8, slot - 0.1)));
+        try{
+          const blob = await ttsBlob(lrcLines[i].s, speed);
+          bufs[i] = await ac.decodeAudioData(await blob.arrayBuffer());
+        }catch(e){ failed++; }
+        done++;
+        if(onStep) onStep(done, lrcLines.length, failed);
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+    if(failed === lrcLines.length) throw new Error('每一句都没合成出来');
+
+    for(let i = 0; i < bufs.length; i++){
+      const b = bufs[i];
+      if(!b) continue;
+      const src = b.getChannelData(0);
+      const start = Math.round(lrcLines[i].t * sr);
+      const maxN = Math.min(Math.round(slots[i] * sr), Math.floor((total - lrcLines[i].t) * sr));
+      const n = Math.min(src.length, Math.max(0, maxN));
+      const fade = Math.min(Math.round(0.03 * sr), Math.max(1, n >> 2));
+      for(let j = 0; j < n; j++){
+        let x = src[j];
+        if(j < fade) x *= j / fade;
+        else if(j > n - fade) x *= (n - j) / fade;
+        const k = start + j;
+        if(k >= 0 && k < vd.length) vd[k] += x;
+      }
+    }
+
+    let inst;
+    try{
+      const ib = await (await fetch(mediaUrl(track, track.instrumental))).blob();
+      inst = await ac.decodeAudioData(await ib.arrayBuffer());
+    }catch(e){ throw new Error('伴奏加载失败，检查网络'); }
+    const id = inst.getChannelData(0);
+
+    const mix = ac.createBuffer(1, Math.ceil(total * sr), sr);
+    const md = mix.getChannelData(0);
+    for(let i = 0; i < md.length; i++){
+      const bed = i < id.length ? id[i] * 0.85 : 0;
+      md[i] = Math.max(-1, Math.min(1, vd[i] + bed));
+    }
+    return { blob: encodeWavBuffer(mix), failed, lines: lrcLines.length };
+  } finally {
+    try{ ac.close(); }catch(e){}
+  }
+}
+
+async function saveTrackVocal(trackId, blob){
+  const fd = new FormData();
+  fd.append('vocal', blob);
+  const r = await fetch('/api/track/vocal', {method:'POST', headers:{'X-Track-Id': trackId}, body: fd});
+  const d = await r.json();
+  if(d.error) throw new Error(d.error);
+  return d;
+}
+
+async function genVocalForCurrent(){
+  if(!track) return;
+  loadCfg();
+  const bar = $('voxBar'), lab = bar.querySelector('span');
+  bar.hidden = false;
+  try{
+    lab.textContent = '正在读取歌词…';
+    const lrc = await (await fetch('/lrc/' + encodeURIComponent(track.id) + '.lrc')).text();
+    const built = await buildTrackVocal(track, parseLRC(lrc), (n, t, f) => {
+      lab.textContent = `正在生成原唱 ${n}/${t}${f ? `（${f} 句失败）` : ''}`;
+    });
+    lab.textContent = '正在保存原唱…';
+    await saveTrackVocal(track.id, built.blob);
+    await loadLibrary();
+    await openTrack(track.id);
+  }catch(e){
+    bar.hidden = false;
+    lab.textContent = '原唱没生成：' + e.message;
+  }
+}
+
+async function testVoice(){
+  const text = ($('aiResult').value.trim().split('\n')[0]
+    || 'When I stay at my countryside house, I find it hard to get internet.').slice(0, 90);
+  $('aiMsg').textContent = '正在合成试听…';
+  try{
+    const blob = await ttsBlob(text, 1.05);
+    const url = URL.createObjectURL(blob);
+    const a = new Audio(url);
+    a.onended = () => URL.revokeObjectURL(url);
+    await a.play();
+    $('aiMsg').textContent = '试听：' + text;
+  }catch(e){
+    $('aiMsg').textContent = '原唱试听失败：' + e.message;
+  }
 }
 
 /* ---------------- 补录 ---------------- */
@@ -793,6 +1042,19 @@ function mediaUrl(track, rel){
   // 静态版本直接带相对路径/资源路径
   if(/^(https?:|blob:|data:|\/|assets\/)/.test(s)) return s;
   return `/media/${track.id}/` + s.split('/').map(encodeURIComponent).join('/');
+}
+
+/* 原唱可能是生成后存在 IndexedDB 里的 blob（vocal:<id>） */
+async function resolveTrackVocal(track){
+  const v = String(track.vocal || '');
+  if(!v) return '';
+  if(v.startsWith('vocal:')){
+    try{
+      const d = await (await fetch('/api/blob?k=' + encodeURIComponent(v))).json();
+      return d.url || '';
+    }catch(e){ return ''; }
+  }
+  return mediaUrl(track, v);
 }
 
 function canRecord(){ return !!window.isSecureContext; }
@@ -1479,6 +1741,7 @@ async function publishWork(){
     });
     const d = await r.json();
     if(d.error){ $('resultNote').textContent = d.error; return; }
+    await ensureDraftForTrack(track);
     curWork = null;
     stopAll();
     go('home');
@@ -1508,15 +1771,22 @@ async function retrySong(){
 }
 
 /* ---------------- 作品 ---------------- */
+let worksList = [];
+
 async function showWorks(){
   const d = await (await fetch('/api/works')).json();
   const works = d.works || [];
+  worksList = works;
   let html = works.map(w => `
     <div class="work">
       <div class="h"><span>${esc(w.title)}</span>
         <span class="d">${new Date(w.created*1000).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}
         · <a class="del" onclick="delWork('${w.id}',event)">删除</a></span></div>
       <audio controls preload="none" src="${w.mix}"></audio>
+      <div class="acts">
+        <a class="btn" href="${w.mix}" download="${esc(w.title || '我的唱')}.wav">下载</a>
+        <button class="btn" onclick="shareWork('${w.id}')">分享到微信</button>
+      </div>
     </div>`).join('');
   if(!works.length){
     html = d.legacy
@@ -1526,6 +1796,26 @@ async function showWorks(){
   }
   $('workList').innerHTML = html;
   go('works');
+}
+
+async function shareWork(id){
+  const w = worksList.find(x => x.id === id);
+  if(!w) return;
+  const name = String(w.title || '我的唱').replace(/[\\/:*?"<>|]/g, '') + '.wav';
+  try{
+    const blob = await (await fetch(w.mix)).blob();
+    const file = new File([blob], name, {type: blob.type || 'audio/wav'});
+    if(navigator.canShare && navigator.canShare({files: [file]})){
+      await navigator.share({files: [file], title: w.title || '我的唱'});
+      return;
+    }
+    const a = document.createElement('a');
+    a.href = w.mix; a.download = name; a.click();
+    toast('这台设备不能直接分享，已下载，去微信里发给朋友');
+  }catch(e){
+    if(e && e.name === 'AbortError') return;
+    toast('分享失败：' + e.message);
+  }
 }
 
 async function claimLegacy(){
@@ -1547,7 +1837,7 @@ function go(name){
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('on'));
   $(name).classList.add('on');
 }
-function backHome(){ stopAll(); go('home'); loadLibrary(); loadScripts(); loadWorksMeta(); }
+function backHome(){ coachEnd(); stopAll(); go('home'); loadLibrary(); loadScripts(); loadWorksMeta(); }
 
 async function loadWorksMeta(){
   try{
@@ -1798,6 +2088,10 @@ function loadCfg(){
   $('aiBase').value = c.base || DEFAULT_LLM.base;
   $('aiModel').value = c.model || DEFAULT_LLM.model;
   $('aiKey').value = c.key || '';
+  $('ttsBase').value = c.ttsBase || '';
+  $('ttsModel').value = c.ttsModel || '';
+  $('ttsVoice').value = c.ttsVoice || '';
+  $('ttsKey').value = c.ttsKey || '';
   syncProviderSelect();
 }
 
@@ -1817,7 +2111,11 @@ function saveCfg(){
   localStorage.setItem(CFG_KEY, JSON.stringify({
     base: $('aiBase').value.trim(),
     model: $('aiModel').value.trim(),
-    key: $('aiKey').value.trim()
+    key: $('aiKey').value.trim(),
+    ttsBase: $('ttsBase').value.trim(),
+    ttsModel: $('ttsModel').value.trim(),
+    ttsVoice: $('ttsVoice').value.trim(),
+    ttsKey: $('ttsKey').value.trim()
   }));
 }
 function applyProvider(){
@@ -1922,28 +2220,56 @@ function cleanLines(t){
     .join('\n');
 }
 
-async function fitToTpl(){
+function deriveTitle(text, explicit){
+  const t = String(explicit || '').trim();
+  if(t) return t.slice(0, 40);
+  const first = String(text || '').split('\n')[0].replace(/^\[.*?\]$/, '').trim();
+  return (first.length > 22 ? first.slice(0, 22) + '…' : first) || '未命名';
+}
+
+let doneResolve = null;
+function showDone(title, sub){
+  $('doneT').textContent = title;
+  $('doneS').textContent = sub || '';
+  $('done').classList.add('on');
+  return new Promise(r => { doneResolve = r; });
+}
+function doneOk(){
+  $('done').classList.remove('on');
+  const r = doneResolve;
+  doneResolve = null;
+  if(r) r();
+}
+
+/* 发布/生成时如果用户没手动存过草稿，就补一份，文字不会丢 */
+async function ensureDraftForTrack(t){
+  if(!t || !t.text) return;
+  try{
+    const d = await (await fetch('/api/corpus')).json();
+    if((d.items || []).some(x => String(x.text || '').trim() === String(t.text).trim())) return;
+    await fetch('/api/corpus', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({title: t.title || '未命名', style: t.template_name || '曲目',
+                            template: t.template || '', text: t.text})
+    });
+  }catch(e){ /* 草稿是兜底，失败不拦主流程 */ }
+}
+
+async function saveDraft(){
   const text = $('aiResult').value.trim();
   if(!text){ $('aiMsg').textContent = '还没有内容'; return; }
+  const title = deriveTitle(text, $('aiTitle').value);
   const tpl = TPLS.find(t => t.id === aiTplId);
-  if(!tpl){ $('aiMsg').textContent = '曲式没加载出来'; return; }
-  $('aiMsg').textContent = '套曲式中…';
-  try{
-    const r = await fetch('/api/fit', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({text, template: aiTplId})
-    });
-    const d = await r.json();
-    if(d.error){ $('aiMsg').textContent = d.error; return; }
-    $('aiResult').value = d.text;
-    const st = d.stats || {};
-    const drop = (d.info && d.info.dropped) || 0;
-    $('aiMsg').textContent =
-      `套进「${tpl.name}」：${st.lines} 行 · ${st.bars} 小节 · ${Math.round(st.duration)} 秒`
-      + (drop ? ` · ${drop} 句放不下被截掉` : '');
-  }catch(e){
-    $('aiMsg').textContent = '失败：' + e.message;
-  }
+  const r = await fetch('/api/corpus', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({title, style: tpl ? tpl.name : '文本', template: aiTplId, text})
+  });
+  const d = await r.json();
+  if(d.error){ $('aiMsg').textContent = d.error; return; }
+  await showDone('已存入草稿', `「${title}」在草稿箱里，随时能改`);
+  closeAI();
+  loadScripts();
+  go('home');
 }
 
 async function createTrack(){
@@ -1951,19 +2277,46 @@ async function createTrack(){
   if(!text){ $('aiMsg').textContent = '还没有内容'; return; }
   const tpl = TPLS.find(t => t.id === aiTplId);
   if(!tpl){ $('aiMsg').textContent = '曲式没加载出来'; return; }
-  $('aiMsg').textContent = '正在做成曲目…';
+  saveCfg();
+  const title = deriveTitle(text, $('aiTitle').value);
+  $('aiMsg').textContent = '正在生成曲目…';
   try{
     const r = await fetch('/api/track/create', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({text, template: aiTplId})
+      body: JSON.stringify({text, template: aiTplId, title})
     });
     const d = await r.json();
     if(d.error){ $('aiMsg').textContent = d.error; return; }
-    closeAI();
+    await ensureDraftForTrack(d.track);
+
+    let gotVocal = false, why = '';
+    try{
+      $('aiMsg').textContent = '正在生成原唱… 0/' + Math.max(1, text.split('\n').length);
+      const lrc = await (await fetch('/lrc/' + encodeURIComponent(d.track.id) + '.lrc')).text();
+      const built = await buildTrackVocal(d.track, parseLRC(lrc), (n, total, f) => {
+        $('aiMsg').textContent = `正在生成原唱… ${n}/${total}` + (f ? `（${f} 句失败）` : '');
+      });
+      await saveTrackVocal(d.track.id, built.blob);
+      gotVocal = true;
+    }catch(e){
+      why = e.message;
+    }
+
     await loadLibrary();
-    go('home');
-    $('homeSub').textContent = `已生成：${d.track.title}`;
-    window.scrollTo({top:0, behavior:'smooth'});
+    await showDone(
+      gotVocal ? '已存入曲库' : '已存入曲库（没有原唱）',
+      gotVocal ? `「${d.track.title}」已经带原唱，回曲库就能唱`
+               : `「${d.track.title}」已保存。原唱没生成：${why}`
+    );
+    closeAI();
+    const guided = guidedDemo;
+    guidedDemo = false;
+    if(guided){
+      await openTrack(d.track.id);
+      startCoach();
+    }else{
+      go('home');
+    }
   }catch(e){
     $('aiMsg').textContent = '失败：' + e.message;
   }
@@ -1979,22 +2332,6 @@ async function copyResult(){
     document.execCommand('copy');
     $('aiMsg').textContent = '已复制';
   }
-}
-
-async function saveToLibrary(){
-  const text = $('aiResult').value.trim();
-  if(!text){ $('aiMsg').textContent = '还没有内容'; return; }
-  const first = text.split('\n')[0].replace(/^\[.*?\]$/, '').trim();
-  const title = first.length > 22 ? first.slice(0, 22) + '…' : first;
-  const tpl = TPLS.find(t => t.id === aiTplId);
-  const r = await fetch('/api/corpus', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({title, style: tpl ? tpl.name : '文本', template: aiTplId, text})
-  });
-  const d = await r.json();
-  if(d.error){ $('aiMsg').textContent = d.error; return; }
-  $('aiMsg').textContent = '已存进「草稿箱」，首页能再打开';
-  loadScripts();
 }
 
 let scriptsOpen = false;
@@ -2040,8 +2377,9 @@ async function openScript(id, item){
     fillTplSelect();
   }
   $('aiResult').value = item.text || '';
+  $('aiTitle').value = item.title || '';
   $('aiOut').hidden = false;
-  $('aiMsg').textContent = `已打开《${item.title}》，可以直接套曲式或做成曲目`;
+  $('aiMsg').textContent = `已打开《${item.title}》，可以直接生成新曲`;
 }
 
 async function delScript(id){
@@ -2072,44 +2410,98 @@ function renameMe(){
 }
 
 /* ---------------- 新手引导 ---------------- */
-let guideClip = null;
-
 function openGuide(){
-  $('gPlay').textContent = '▶ 听 30 秒原唱';
   $('gName').value = MYNAME || '';
   $('guide').classList.add('on');
 }
 
 function closeGuide(){
-  stopGuideClip();
   saveName($('gName').value);
   $('guide').classList.remove('on');
   localStorage.setItem('rap_seen_guide', '1');
 }
 
-function toggleGuideClip(){
-  const btn = $('gPlay');
-  if(!guideClip){
-    guideClip = new Audio('assets/audio/onboard/clip30.mp3');
-    guideClip.style.display = 'none';
-    document.body.appendChild(guideClip);   // 手机上不在文档里的音频可能不播
-    guideClip.onended = () => { btn.textContent = '▶ 再听一遍'; };
+/* ---------------- 一句话做成歌 ---------------- */
+const DEMO_TOPIC = '生活就像海洋，只有意志坚定的人才能学会游泳。';
+const DEMO_EN = [
+  'Life is like the ocean, cold and wide and deep',
+  'Waves keep coming at you when you try to sleep',
+  "I don't wait for calm seas, I learn to ride the tide",
+  'Every time I fall down, I stand up and I try',
+  'Only the strong-willed learn how to swim',
+  'Only the patient ones keep the dream in them',
+  "When the water pulls me under, I don't let it win",
+  'Life is like the ocean, so I swim, I swim',
+  'I used to be scared of the dark blue night',
+  'Now I trust my arms and I hold my breath tight',
+  'Storms will come and go, but my heart stays strong',
+  'I keep moving forward, humming my own song',
+  'Only the strong-willed learn how to swim',
+  'Only the patient ones keep the dream in them',
+  "When the water pulls me under, I don't let it win",
+  'Life is like the ocean, so I swim, I swim'
+].join('\n');
+
+let guidedDemo = false, coachIdx = -1;
+
+const COACH = [
+  {t:'先听一遍', s:'点下面的播放键，听一段原唱，熟悉一下拍子再开口。'},
+  {t:'上下滑，选一句', s:'手指在歌词上上下滑，停在最想唱的那句。松手后播放就从这句继续。'},
+  {t:'右上角能开关原唱', s:'「原唱」打开是完整示范，点红点录制时会自动静音，只留伴奏。'},
+  {t:'按红点，开唱', s:'倒数 3 秒开录，跟着拍子唱完再点一下红点。最后在那页可以发布、下载。'}
+];
+
+function startCoach(){
+  coachIdx = 0;
+  renderCoach();
+  $('coach').hidden = false;
+}
+function renderCoach(){
+  const s = COACH[coachIdx];
+  if(!s) return coachEnd();
+  let t = s.t, txt = s.s;
+  if(!vocalEl && coachIdx === 0){
+    t = '歌已经做好了';
+    txt = '原唱这次没合成出来（API 设置里填个语音 Key 就能补）。点播放听伴奏，一样能跟着唱。';
+  }else if(!vocalEl && coachIdx === 2){
+    txt = '这首暂时没有原唱，先用伴奏唱。之后在曲库里点「生成原唱」就能听示范。';
   }
-  if(guideClip.paused){
-    guideClip.play()
-      .then(() => { btn.textContent = '❚❚ 播放中，想停就点'; })
-      .catch(() => { btn.textContent = '▶ 听 30 秒原唱'; });
-  }else{
-    guideClip.pause();
-    btn.textContent = '▶ 继续听';
-  }
+  $('coachT').textContent = t;
+  $('coachS').textContent = txt;
+  $('coachNext').textContent = coachIdx === COACH.length - 1 ? '知道了' : '下一步';
+}
+function coachNext(){
+  if(coachIdx >= COACH.length - 1) return coachEnd();
+  coachIdx++;
+  renderCoach();
+}
+function coachEnd(){
+  coachIdx = -1;
+  $('coach').hidden = true;
 }
 
-function stopGuideClip(){
-  if(!guideClip) return;
-  guideClip.pause();
-  guideClip.currentTime = 0;
-  $('gPlay').textContent = '▶ 听 30 秒原唱';
+async function startGuidedDemo(){
+  closeGuide();
+  guidedDemo = true;
+  await openAI();
+  $('aiTopic').value = DEMO_TOPIC;
+  $('aiResult').value = DEMO_EN;
+  $('aiTitle').value = 'Life Is Like The Ocean';
+  $('aiLang').value = 'en';
+  $('aiOut').hidden = false;
+  aiStyle = 'mid';
+  document.querySelectorAll('#styleChips .chip').forEach(c =>
+    c.classList.toggle('on', c.dataset.k === 'mid'));
+  fillTplSelect();
+  $('aiMsg').textContent = '英文已经写好了。先在下面挑一个节奏，再点「生成新曲」。';
+}
+
+/* 直接进 30 秒试唱曲目，让用户真的唱一遍 */
+async function startDemo30(){
+  closeGuide();
+  if(!library.length) await loadLibrary();
+  await openTrack('demo-30');
+  startCoach();
 }
 
 (function secureBar(){

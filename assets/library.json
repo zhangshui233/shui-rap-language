@@ -1,6 +1,16 @@
 {
  "tracks": [
   {
+   "id": "demo-30",
+   "title": "30 秒试唱",
+   "artist": "试唱 Demo",
+   "bpm": 108,
+   "vocal": "assets/snd/demo30/vocal30.mp3",
+   "instrumental": "assets/snd/demo30/inst30.mp3",
+   "lrc_url": "assets/snd/demo30/lyrics.lrc",
+   "duration": 30
+  },
+  {
    "id": "part-one-vol1",
    "title": "Part One Vol.1",
    "artist": "水子",
