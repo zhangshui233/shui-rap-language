@@ -40,6 +40,11 @@ body{
 .card .t .tt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .card .t .badge{margin-left:0;flex:none}
 .card .a{font-size:12px;color:var(--dim);margin-top:4px}
+.card-more{width:34px;height:34px;border-radius:50%;border:1px solid #3a3a52;background:#22222f;
+  flex:none;display:grid;place-items:center;padding:0}
+.card-more .dots{display:flex;gap:3px}
+.card-more .dots i{width:4px;height:4px;border-radius:50%;background:#b6b6cc}
+.card-more:active{background:#2a2150}
 .badge{font-size:10px;padding:2px 7px;border-radius:20px;background:#2a2150;color:#b49bff;margin-left:6px;vertical-align:middle}
 .empty{color:var(--dim);font-size:13px;text-align:center;padding:50px 20px;line-height:1.9}
 
@@ -199,8 +204,8 @@ summary{font-size:12px;color:var(--dim);cursor:pointer;padding:6px 0}
 .note{font-size:11px;color:#5f5f74;line-height:1.7;margin-top:9px}
 .corpus{cursor:pointer}
 .corpus:active{transform:scale(.995)}
-.sc-del{font-size:12px;color:#5a5a70;padding:2px 4px;flex:none}
-.sc-del:active{color:#ff6b85}
+.sc-del{font-size:11px;color:#ff8fa3;padding:3px 8px;border:1px solid #4a2530;border-radius:8px;flex:none}
+.sc-del:active{background:#2a1620}
 .corpus-ph{font-size:12px;color:#4a4a5c;padding:2px 4px 6px;line-height:1.7}
 .sc-more{color:#8b5cf6;cursor:pointer;padding:6px 4px 10px}
 
@@ -248,6 +253,14 @@ summary{font-size:12px;color:var(--dim);cursor:pointer;padding:6px 0}
   background:#131c2a;border:1px solid #24406b;border-radius:10px;font-size:12.5px;color:#a9c8ff}
 #voxBar[hidden]{display:none}
 #voxBar span{flex:1}
+#trackMenu{position:fixed;inset:0;display:none;place-items:center;z-index:82;padding:24px;
+  background:rgba(4,4,8,.72);backdrop-filter:blur(6px)}
+#trackMenu.on{display:grid}
+#trackMenu .tm-card{width:100%;max-width:310px;background:#16161f;border:1px solid #2e2e44;
+  border-radius:20px;padding:22px 20px;display:flex;flex-direction:column;gap:9px}
+#trackMenu .tm-t{font-size:16px;font-weight:700;text-align:center;word-break:break-word}
+#trackMenu .tm-s{font-size:12px;color:var(--dim);text-align:center;line-height:1.6;margin-bottom:6px}
+.btn.warn{color:#ff8fa3;border-color:#5a2a3a}
 #coach{position:fixed;inset:0;display:flex;align-items:flex-start;justify-content:center;z-index:75;padding:calc(60px + env(safe-area-inset-top)) 16px 24px;pointer-events:none}
 #coach .coach-card{pointer-events:auto}
 #coach[hidden]{display:none}
@@ -473,6 +486,17 @@ summary{font-size:12px;color:var(--dim);cursor:pointer;padding:6px 0}
 
   <div id="toast"></div>
 
+  <!-- 曲目操作 -->
+  <div id="trackMenu">
+    <div class="tm-card">
+      <div class="tm-t" id="tmTitle"></div>
+      <div class="tm-s">这首歌是你自己生成的，可以改词或删掉</div>
+      <button class="btn primary" onclick="menuEdit()">改歌词</button>
+      <button class="btn warn" onclick="menuDeleteTrack()">删除这首歌</button>
+      <button class="btn" onclick="closeTrackMenu()">取消</button>
+    </div>
+  </div>
+
   <!-- 保存完成提示 -->
   <div id="done">
     <div class="done-card">
@@ -508,7 +532,7 @@ summary{font-size:12px;color:var(--dim);cursor:pointer;padding:6px 0}
         <li><span><b>跟着黄字唱。</b>上下滑翻歌词，滑到某句停住，红点就从那句开录。</span></li>
         <li><span><b>停下就进混音页。</b>拖「伴奏 / 人声」调到舒服，点发布。</span></li>
         <li><span><b>发布的录音</b>都在「我的作品」里，随时回放；写过的稿子留在「草稿箱」。</span></li>
-        <li><span><b>长按草稿箱里的曲子</b>就能改歌词，保存后自动重排时间轴。</span></li>
+        <li><span><b>自己生成的曲目</b>右边有「⋯」，点开能改歌词或删除；长按卡片也一样。</span></li>
         <li><span><b>作品和草稿存在这台设备的浏览器里</b>，不联网也能听，换设备或清缓存会看不到。</span></li>
       </ol>
       <div class="g-demo">
@@ -579,23 +603,28 @@ async function loadLibrary(){
         <div class="t"><span class="tt">${esc(t.title)}</span><span class="badge">${t.bpm||''}</span></div>
         <div class="a">${esc(t.artist)}${t.template_name ? ' · ' + esc(t.template_name) : ''}${t.duration ? ' · ' + fmt(t.duration) : ''}</div>
       </div>
+      ${t.generated ? `<button class="card-more" title="改词或删除" aria-label="改词或删除"
+        onclick="event.stopPropagation();trackMenu('${t.id}')"><span class="dots"><i></i><i></i><i></i></span></button>` : ''}
       <div style="color:var(--dim);font-size:20px">›</div>
     </div>`).join('') || `<div class="empty">还没有曲目</div>`) + more;
 
   $('trackList').querySelectorAll('.card[data-id]').forEach(bindCard);
 }
 
-/* 点一下进入跟唱；长按 0.5 秒改歌词 */
+/* 点一下进入跟唱；点 ⋯ 或长按 0.5 秒弹出改词 / 删除 */
 function bindCard(el){
+  const t = library.find(x => x.id === el.dataset.id);
+  const canMenu = !!(t && t.generated);
   let timer = null, fired = false;
   const stop = () => { clearTimeout(timer); el.classList.remove('press'); };
   el.addEventListener('pointerdown', () => {
     fired = false;
+    if(!canMenu) return;
     el.classList.add('press');
     timer = setTimeout(() => {
       fired = true;
       el.classList.remove('press');
-      editTrack(el.dataset.id);
+      trackMenu(el.dataset.id);
     }, 520);
   });
   el.addEventListener('pointerup', stop);
@@ -603,10 +632,41 @@ function bindCard(el){
   el.addEventListener('pointerleave', stop);
   el.addEventListener('pointermove', stop);
   el.addEventListener('click', e => {
+    if(e.target.closest('.card-more')) return;
     if(fired){ fired = false; e.preventDefault(); e.stopPropagation(); return; }
     openTrack(el.dataset.id);
   });
   el.addEventListener('contextmenu', e => e.preventDefault());
+}
+
+let menuTrackId = null;
+function trackMenu(id){
+  const t = library.find(x => x.id === id);
+  if(!t || !t.generated) return;
+  menuTrackId = id;
+  $('tmTitle').textContent = t.title || '这首歌';
+  $('trackMenu').classList.add('on');
+}
+function closeTrackMenu(){
+  $('trackMenu').classList.remove('on');
+  menuTrackId = null;
+}
+function menuEdit(){
+  const id = menuTrackId;
+  closeTrackMenu();
+  if(id) editTrack(id);
+}
+async function menuDeleteTrack(){
+  const id = menuTrackId;
+  closeTrackMenu();
+  if(!id) return;
+  if(!confirm('删除这首歌？歌词和原唱会一起删掉，已经发布的作品不受影响。')) return;
+  await fetch('/api/track/delete', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({id})
+  });
+  await loadLibrary();
+  toast('已删除');
 }
 
 /* ---------------- 改歌词 ---------------- */
@@ -2352,7 +2412,7 @@ async function loadScripts(){
       <div class="corpus" data-id="${esc(c.id)}">
         <div class="t">${esc(c.title)}</div>
         <span class="k">${esc(c.style)}</span>
-        <span class="sc-del" data-id="${esc(c.id)}">✕</span>
+        <span class="sc-del" data-id="${esc(c.id)}">删除</span>
       </div>`).join('') + more
     : `<div class="corpus-ph">还没有存稿。写一篇，点「存进草稿箱」就会留在这里</div>`;
 

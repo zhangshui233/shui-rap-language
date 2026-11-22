@@ -409,6 +409,7 @@
     if (p === '/api/track/delete') {
       const b = await bodyJson(opt);
       write(LS.tracks, read(LS.tracks, []).filter(x => x.id !== b.id));
+      await delBlob('vocal:' + b.id);
       return json({ ok: true });
     }
 
