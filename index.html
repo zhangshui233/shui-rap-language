@@ -906,15 +906,15 @@ async function ttsBlob(text, speed){
 
 /* ---------------- 免 Key 本地语音（Kitten TTS / WebGPU） ---------------- */
 const KITTEN = {
-  // 优先走 GitHub 代理 CDN（带 ACAO，国内约 200KB/s），失败回落到本站自托管文件
+  // GitHub 代理 CDN 带 CORS，国内实测 ghfast ~1.6MB/s、gh-proxy ~200KB/s；最后回落到本站自托管
   model: [
+    'https://ghfast.top/https://raw.githubusercontent.com/zhangshui233/shui-rap-language/main/assets/tts/kitten/kitten_tts_nano_v0_8.onnx',
     'https://gh-proxy.com/https://raw.githubusercontent.com/zhangshui233/shui-rap-language/main/assets/tts/kitten/kitten_tts_nano_v0_8.onnx',
-    'https://hf-mirror.com/KittenML/kitten-tts-nano-0.8-int8/resolve/main/kitten_tts_nano_v0_8.onnx',
     'assets/tts/kitten/kitten_tts_nano_v0_8.onnx',
   ],
   voices: [
+    'https://ghfast.top/https://raw.githubusercontent.com/zhangshui233/shui-rap-language/main/assets/tts/kitten/voices.npz',
     'https://gh-proxy.com/https://raw.githubusercontent.com/zhangshui233/shui-rap-language/main/assets/tts/kitten/voices.npz',
-    'https://hf-mirror.com/KittenML/kitten-tts-nano-0.8-int8/resolve/main/voices.npz',
     'assets/tts/kitten/voices.npz',
   ],
   voice: 'Jasper',
@@ -925,6 +925,13 @@ let kittenQ = Promise.resolve(), freeTtsOn = false;
 
 function kittenSupported(){ return !!navigator.gpu; }
 function setTtsProgress(fn){ kittenProgress = fn; }
+function ttsDlText(p){
+  const mb = n => (n / 1048576).toFixed(1);
+  if(!p.total) return `首次加载语音包…（已下 ${mb(p.loaded)} MB）`;
+  const pct = Math.min(99, Math.floor(p.loaded / p.total * 100));
+  return `首次下载语音包 ${pct}% · ${mb(p.loaded)}/${mb(p.total)} MB`
+    + (p.kbps ? ` · ${p.kbps} KB/s` : '');
+}
 
 async function cachedBlobUrl(sources, cacheKey){
   const key = new URL(cacheKey, location.href).href;
@@ -933,11 +940,14 @@ async function cachedBlobUrl(sources, cacheKey){
     const hit = await c.match(key).catch(() => null);
     if(hit) return URL.createObjectURL(await hit.blob());
   }
-  let lastErr = null;
+  let lastErr = null, tried = 0;
   for(const src of sources){
+    tried++;
+    const ac = new AbortController();
+    const to = setTimeout(() => ac.abort(), 240000);   // 卡住的源别一直等
     try{
       const abs = new URL(src, location.href).href;
-      const res = await fetch(abs);
+      const res = await fetch(abs, {signal: ac.signal});
       if(!res.ok) throw new Error('HTTP ' + res.status);
       const total = Number(res.headers.get('Content-Length') || 0);
       let blob;
@@ -945,14 +955,17 @@ async function cachedBlobUrl(sources, cacheKey){
         const reader = res.body.getReader();
         const chunks = [];
         let loaded = 0;
+        const t0 = Date.now();
         for(;;){
           const {done, value} = await reader.read();
           if(done) break;
           chunks.push(value);
           loaded += value.length;
-          kittenProgress({loaded, total});
+          const secs = Math.max(0.5, (Date.now() - t0) / 1000);
+          kittenProgress({loaded, total, kbps: Math.round(loaded / 1024 / secs)});
         }
         blob = new Blob(chunks, {type:'application/octet-stream'});
+        if(total && blob.size < total * 0.98) throw new Error('下载不完整');
       }else{
         blob = await res.blob();
       }
@@ -960,15 +973,22 @@ async function cachedBlobUrl(sources, cacheKey){
       return URL.createObjectURL(blob);
     }catch(e){
       lastErr = e;
+    }finally{
+      clearTimeout(to);
     }
   }
-  throw new Error('语音包下载失败' + (lastErr ? '：' + lastErr.message : ''));
+  const why = !lastErr ? '没有可用下载源'
+    : lastErr.name === 'AbortError' ? '下载超时' : (lastErr.message || String(lastErr));
+  throw new Error(`语音包下载失败（${tried} 个源都不行：${why}）。检查一下网络再点一次，或者填一个语音 Key`);
 }
 
 async function kittenEngine(){
   if(!navigator.gpu) throw new Error('这个浏览器不支持 WebGPU，免 Key 语音用不了，请填一个语音 Key');
   if(!kittenEngineP){
     kittenEngineP = (async () => {
+      const ad = await navigator.gpu.requestAdapter().catch(() => null);
+      if(!ad) throw new Error('这台设备的 WebGPU 用不了（浏览器可能关了硬件加速，或显卡驱动被禁用）。'
+        + '在浏览器设置里打开「使用硬件加速」并重启，或者填一个语音 Key');
       const m = await import('./vendor/kitten/index.js');
       const modelUrl = await cachedBlobUrl(KITTEN.model, 'assets/tts/kitten/kitten_tts_nano_v0_8.onnx');
       const voicesUrl = await cachedBlobUrl(KITTEN.voices, 'assets/tts/kitten/voices.npz');
@@ -990,7 +1010,7 @@ async function kittenEngine(){
 function kittenTtsBlob(text, speed){
   const run = kittenQ.then(async () => {
     if(/[㐀-鿿]/.test(text)){
-      throw new Error('本地语音包只支持英文；中文歌词请填一个语音 Key');
+      throw new Error('本机语音只念英文，这句歌词是中文。可以回「写新稿」用免费 AI 生成英文词再回来，或填一个语音 Key 来念中文');
     }
     const {e, m} = await kittenEngine();
     const {ids} = await m.textToInputIds(text);
@@ -1167,11 +1187,7 @@ async function genVocalForCurrent(){
   btn.disabled = true;
   try{
     lab.textContent = '正在读取歌词…';
-    setTtsProgress(p => {
-      lab.textContent = p.total
-        ? `首次下载语音包 ${(p.loaded/1048576).toFixed(1)} / ${(p.total/1048576).toFixed(1)} MB`
-        : '首次加载语音包…';
-    });
+    setTtsProgress(p => { lab.textContent = ttsDlText(p); });
     const lrc = await (await fetch('/lrc/' + encodeURIComponent(track.id) + '.lrc')).text();
     const built = await buildTrackVocal(track, parseLRC(lrc), (n, t, f) => {
       lab.textContent = `正在生成原唱 ${n}/${t}${f ? `（${f} 句失败）` : ''}`;
@@ -2738,11 +2754,7 @@ async function createTrack(){
     let gotVocal = false, why = '';
     try{
       $('aiMsg').textContent = '正在生成原唱… 0/' + Math.max(1, text.split('\n').length);
-      setTtsProgress(p => {
-        $('aiMsg').textContent = p.total
-          ? `首次下载语音包 ${(p.loaded/1048576).toFixed(1)} / ${(p.total/1048576).toFixed(1)} MB`
-          : '正在加载语音包…';
-      });
+      setTtsProgress(p => { $('aiMsg').textContent = ttsDlText(p); });
       const lrc = await (await fetch('/lrc/' + encodeURIComponent(d.track.id) + '.lrc')).text();
       const built = await buildTrackVocal(d.track, parseLRC(lrc), (n, total, f) => {
         $('aiMsg').textContent = `正在生成原唱… ${n}/${total}` + (f ? `（${f} 句失败）` : '');
